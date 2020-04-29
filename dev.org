@@ -25,61 +25,60 @@ export NATS_PRELUDE=$(pwd)/package.dhall
 #+BEGIN_SRC dhall :tangle package.dhall
 {
   , K8S = ./k8s/package.dhall
+  , Server = ./server/package.dhall
 }
 #+END_SRC
 
-* NATS.K8S
+* NATS.Server
 
-** package.dhall
+** Package
 
-#+BEGIN_SRC dhall :tangle k8s/package.dhall 
+#+BEGIN_SRC dhall :tangle server/package.dhall
 {
   , Cluster = ./cluster/schemas.dhall
-  , toList = ./toList.dhall
 }
 #+END_SRC
 
-**** Cluster
+** Schemas
 
-***** schemas.dhall
-
-#+BEGIN_SRC dhall :tangle k8s/cluster/schemas.dhall
+#+BEGIN_SRC dhall :tangle server/cluster/schemas.dhall
 {
   , Type = ./type.dhall
   , default = ./default.dhall
 }
 #+END_SRC
 
-***** type
+** Cluster Type
 
-#+BEGIN_SRC dhall :tangle k8s/cluster/type.dhall
+#+BEGIN_SRC dhall :tangle server/cluster/type.dhall
 let Cluster : Type = {
   , name : Text
-  , image : Text
   , namespace : Text
+  , image : Text
   , externalAccess : Bool
   , size : Natural
 
   -- FIXME: Should ports be part of the server config instead?
   , clientPort : Natural
-  , monitoringPort : Natural
   , clusterPort : Natural
   , leafnodePort : Natural
   , gatewayPort : Natural
+  , monitoringPort : Natural
 }
 
 in Cluster
 #+END_SRC
 
-***** default
+** Defaults
 
-#+BEGIN_SRC dhall :tangle k8s/cluster/default.dhall
+#+BEGIN_SRC dhall :tangle server/cluster/default.dhall
 {
     , name = None Text
-    , image = "nats:latest"
     , namespace = "default"
+    , image = "nats:latest"
     , externalAccess = False
     , size = 1
+
     , clientPort = 4222
     , clusterPort = 6222
     , leafnodePort = 7422
@@ -88,19 +87,26 @@ in Cluster
 }
 #+END_SRC
 
-**** toList
+* NATS.K8S
 
-#+BEGIN_SRC dhall :tangle k8s/toList.dhall
+** Package
+
+#+BEGIN_SRC dhall :tangle k8s/package.dhall 
+{
+  , toK8S = ./toK8S.dhall
+}
+#+END_SRC
+
+** toK8s
+
+#+BEGIN_SRC dhall :tangle k8s/toK8S.dhall
 let kubernetes =
       https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/v4.0.0/1.17/package.dhall sha256:d9eac5668d5ed9cb3364c0a39721d4694e4247dad16d8a82827e4619ee1d6188
 
-let kind =
-      https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/v4.0.0/1.17/typesUnion.dhall sha256:61d9d79f8de701e9442a796f35cf1761a33c9d60e0dadb09f882c9eb60978323
+let NATS/Cluster = ../server/cluster/type.dhall
 
-let Cluster = ./cluster/type.dhall
-
-let toList =
-        λ(nats : Cluster)
+let toK8S =
+        λ(nats : NATS/Cluster)
       → let labels = Some (toMap { app = nats.name })
 
         let metadata =
@@ -213,13 +219,7 @@ let toList =
                 }
               }
 
-        in  { apiVersion = "v1"
-            , kind = "List"
-            , items =
-              [ kind.ConfigMap cm, kind.Service svc, kind.StatefulSet sts ]
-            }
+        in  { StatefulSet = sts, ConfigMap = cm, Service = svc }
 
-in  toList
+in  toK8S
 #+END_SRC
-
-

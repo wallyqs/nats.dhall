@@ -1,9 +1,10 @@
 {
     , name = None Text
-    , image = "nats:latest"
     , namespace = "default"
+    , image = "nats:latest"
     , externalAccess = False
     , size = 1
+
     , clientPort = 4222
     , clusterPort = 6222
     , leafnodePort = 7422

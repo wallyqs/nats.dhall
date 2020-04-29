@@ -1,4 +1,3 @@
 {
-  , Cluster = ./cluster/schemas.dhall
-  , toList = ./toList.dhall
+  , toK8S = ./toK8S.dhall
 }
