@@ -1,62 +1,129 @@
-let kubernetes = 
-    https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/master/package.dhall
-    sha256:39fa32f6cbdd341cfd2be0aec017c7f6eb554a58bf0262ae222badf3b9c348c0
+let kubernetes =
+      https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/v4.0.0/1.17/package.dhall sha256:d9eac5668d5ed9cb3364c0a39721d4694e4247dad16d8a82827e4619ee1d6188
 
 let kind =
-    https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/4ad58156b7fdbbb6da0543d8b314df899feca077/types.dhall 
-    sha256:e48e21b807dad217a6c3e631fcaf3e950062310bfb4a8bbcecc330eb7b2f60ed
+      https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/v4.0.0/1.17/typesUnion.dhall sha256:61d9d79f8de701e9442a796f35cf1761a33c9d60e0dadb09f882c9eb60978323
 
 let Cluster = ./cluster/type.dhall
 
-let toList = \(nats : Cluster) -> 
-  let labels = Some (toMap { app = nats.name })
-  let metadata = kubernetes.ObjectMeta::{ 
-    , name = nats.name
-    , labels = labels
-  }
+let toList =
+        λ(nats : Cluster)
+      → let labels = Some (toMap { app = nats.name })
 
-  let clientHostPort = if nats.externalAccess then Some 4222 else None Natural
+        let metadata =
+              kubernetes.ObjectMeta::{ name = nats.name, labels = labels }
 
-  let clientPort = kubernetes.ContainerPort::{ 
-    , containerPort = 4222
-    , name = Some nats.name
-    , hostPort = clientHostPort
-  }
+        let cmMetadata =
+              kubernetes.ObjectMeta::{
+              , name = "${nats.name}-config"
+              , labels = labels
+              }
 
-  -- let svc = kubernetes.Service::{
-  --     , metadata = metadata
-  --     , spec = kubernetes.ServiceSpec::{
-  --       , selector = labels
-  --       , type = Some "None"
-  --     }
-  -- }
+        let clientHostPort =
+              if nats.externalAccess then Some nats.clientPort else None Natural
 
-  let sts =
-      kubernetes.StatefulSet::{
-       metadata = metadata,
-       spec = Some kubernetes.StatefulSetSpec::{
-         serviceName = nats.name,
-         selector = kubernetes.LabelSelector::{
-           matchLabels = labels
-          },
-         replicas = Some nats.size,
-         template = kubernetes.PodTemplateSpec::{
-           metadata = metadata,
-           spec = Some kubernetes.PodSpec::{
-             containers =
-              [ kubernetes.Container::{
-                 name = nats.name,
-                 image = Some nats.image,
-                 ports = Some
-                    [
-                      clientPort
-                    ]
+        let clientPort =
+              kubernetes.ContainerPort::{
+              , containerPort = nats.clientPort
+              , name = Some nats.name
+              , hostPort = clientHostPort
+              }
+
+        let natsConfFile = "nats.conf"
+
+        let serverConfig =
+              ''
+              port = ${Natural/show nats.clientPort}
+              http = ${Natural/show nats.monitoringPort}
+
+              cluster {
+                port = ${Natural/show nats.clusterPort}
+
+                routes [
+                  nats://${nats.name}-0.${nats.name}.${nats.namespace}.svc:${Natural/show
+                                                                               nats.clusterPort}
+                  nats://${nats.name}-1.${nats.name}.${nats.namespace}.svc:${Natural/show
+                                                                               nats.clusterPort}
+                  nats://${nats.name}-2.${nats.name}.${nats.namespace}.svc:${Natural/show
+                                                                               nats.clusterPort}
+                ]
+              }
+              ''
+
+        let configVolume =
+              kubernetes.Volume::{
+              , name = "config-volume"
+              , configMap = Some kubernetes.ConfigMapVolumeSource::{
+                , name = Some cmMetadata.name
                 }
-              ]
-            }
-          }
-        }
-      }
-  in { apiVersion = "v1", kind = "List", items = [ sts ] }
+              }
 
-in toList
+        let configVolMount =
+              kubernetes.VolumeMount::{
+              , name = configVolume.name
+              , mountPath = "/etc/nats"
+              }
+
+        let command =
+              [ "/nats-server"
+              , "-c"
+              , "${configVolMount.mountPath}/${natsConfFile}"
+              ]
+
+        let natsContainer =
+              kubernetes.Container::{
+              , name = "nats"
+              , image = Some nats.image
+              , ports = Some [ clientPort ]
+              , command = Some command
+              , volumeMounts = Some [ configVolMount ]
+              }
+
+        let cm =
+              kubernetes.ConfigMap::{
+              , metadata = cmMetadata
+              , data = Some
+                [ { mapKey = natsConfFile, mapValue = serverConfig } ]
+              }
+
+        let sts =
+              kubernetes.StatefulSet::{
+              , metadata = metadata
+              , spec = Some kubernetes.StatefulSetSpec::{
+                , serviceName = nats.name
+                , selector = kubernetes.LabelSelector::{ matchLabels = labels }
+                , replicas = Some nats.size
+                , template = kubernetes.PodTemplateSpec::{
+                  , metadata = metadata
+                  , spec = Some kubernetes.PodSpec::{
+                    , containers = [ natsContainer ]
+                    , volumes = Some [ configVolume ]
+                    }
+                  }
+                }
+              }
+
+        let svc =
+              kubernetes.Service::{
+              , metadata = metadata
+              , spec = Some kubernetes.ServiceSpec::{
+                , selector = labels
+                , clusterIP = Some "None"
+                , ports = Some
+                  [ kubernetes.ServicePort::{
+                    , name = Some "client"
+                    , port = nats.clientPort
+                    , targetPort = Some
+                        (kubernetes.IntOrString.Int nats.clientPort)
+                    }
+                  ]
+                }
+              }
+
+        in  { apiVersion = "v1"
+            , kind = "List"
+            , items =
+              [ kind.ConfigMap cm, kind.Service svc, kind.StatefulSet sts ]
+            }
+
+in  toList

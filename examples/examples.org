@@ -1,0 +1,81 @@
+# -*- mode: org; mode: auto-fill -*- 
+#+TODO:     ONIT HOLD PAUSED TODO | DONE CANCELED
+#+TITLE:    nats.dhall examples
+#+property: :header-args: :results output code :mkdirp true
+
+* Using Dhall to create NATS clusters
+
+#+BEGIN_SRC dhall :results output
+let NATS = https://wallyqs.github.io/nats.dhall/k8s/package.dhall
+
+-- Creates 
+let cluster = NATS.K8S.Cluster::{
+  , name = "nats-cluster"
+  , size = 3
+}
+
+in NATS.toList cluster
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+apiVersion: v1
+items:
+  - apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      labels:
+        app: nats-cluster
+      name: nats-cluster
+    spec:
+      replicas: 3
+      selector:
+        matchLabels:
+          app: nats-cluster
+      serviceName: nats-cluster
+      template:
+        metadata:
+          labels:
+            app: nats-cluster
+          name: nats-cluster
+        spec:
+          containers:
+            - image: nats:latest
+              name: nats-cluster
+              ports:
+                - containerPort: 4222
+                  name: nats-cluster
+kind: List
+#+end_example
+
+#+BEGIN_SRC sh :results output
+kubectl logs nats-cluster-0 
+#+END_SRC
+
+#+RESULTS:
+: [1] 2020/03/04 21:28:44.673047 [INF] Starting nats-server version 2.1.4
+: [1] 2020/03/04 21:28:44.673092 [INF] Git commit [fb009af]
+: [1] 2020/03/04 21:28:44.673240 [INF] Starting http monitor on 0.0.0.0:8222
+: [1] 2020/03/04 21:28:44.673288 [INF] Listening for client connections on 0.0.0.0:4222
+: [1] 2020/03/04 21:28:44.673296 [INF] Server id is NAWYKAPGNEGXNRX4VVRUPBNIZGTP4FZ7ENZP7ZZKC3DSBS3BZ4W6NGBR
+: [1] 2020/03/04 21:28:44.673356 [INF] Server is ready
+: [1] 2020/03/04 21:28:44.673599 [INF] Listening for route connections on 0.0.0.0:6222
+
+* NATS Cluster with 3 nodes on K8S
+
+#+BEGIN_SRC dhall :tangle k8s-cluster.dhall :kubectl apply
+let NATS = env:NATS_PRELUDE
+
+let cluster = NATS.K8S.Cluster:: {
+    , name = "my-nats"
+    , image = "nats:latest"
+    , size = 3
+}
+
+in NATS.K8S.toList cluster
+#+END_SRC
+
+#+RESULTS:
+: configmap/my-nats-config unchanged
+: service/my-nats unchanged
+: statefulset.apps/my-nats configured

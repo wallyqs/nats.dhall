@@ -1,16 +1,36 @@
 # -*- mode: org; mode: auto-fill -*- 
 #+TODO:     ONIT HOLD PAUSED TODO | DONE CANCELED
 #+TITLE:    nats.dhall
-#+property: :header-args: :results output code
+#+property: :header-args: :results output code :mkdirp true
 
 A [[https://dhall-lang.org/][Dhall]] package to work with [[https://nats.io][NATS]] configuration objects.
 
-** NATS.K8S
-:properties:
-:header-args: :mkdirp true
-:end:
+* Dev Setup
 
-*** package.dhall
+Setting up the prelude both for Emacs and local development.
+
+#+BEGIN_SRC emacs-lisp
+(setenv "NATS_PRELUDE" (concat default-directory "package.dhall"))
+(setq dhall-command "/usr/local/bin/dhall")
+#+END_SRC
+
+#+BEGIN_SRC sh :tangle .env
+export NATS_PRELUDE=$(pwd)/package.dhall
+#+END_SRC
+
+* =nats.dhall= package
+
+** NATS Package
+
+#+BEGIN_SRC dhall :tangle package.dhall
+{
+  , K8S = ./k8s/package.dhall
+}
+#+END_SRC
+
+* NATS.K8S
+
+** package.dhall
 
 #+BEGIN_SRC dhall :tangle k8s/package.dhall 
 {
@@ -36,8 +56,16 @@ A [[https://dhall-lang.org/][Dhall]] package to work with [[https://nats.io][NAT
 let Cluster : Type = {
   , name : Text
   , image : Text
+  , namespace : Text
   , externalAccess : Bool
   , size : Natural
+
+  -- FIXME: Should ports be part of the server config instead?
+  , clientPort : Natural
+  , monitoringPort : Natural
+  , clusterPort : Natural
+  , leafnodePort : Natural
+  , gatewayPort : Natural
 }
 
 in Cluster
@@ -49,120 +77,149 @@ in Cluster
 {
     , name = None Text
     , image = "nats:latest"
+    , namespace = "default"
     , externalAccess = False
     , size = 1
+    , clientPort = 4222
+    , clusterPort = 6222
+    , leafnodePort = 7422
+    , gatewayPort = 7522
+    , monitoringPort = 8222
 }
 #+END_SRC
 
 **** toList
 
 #+BEGIN_SRC dhall :tangle k8s/toList.dhall
-let kubernetes = 
-    https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/master/package.dhall
-    sha256:39fa32f6cbdd341cfd2be0aec017c7f6eb554a58bf0262ae222badf3b9c348c0
+let kubernetes =
+      https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/v4.0.0/1.17/package.dhall sha256:d9eac5668d5ed9cb3364c0a39721d4694e4247dad16d8a82827e4619ee1d6188
 
 let kind =
-    https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/4ad58156b7fdbbb6da0543d8b314df899feca077/types.dhall 
-    sha256:e48e21b807dad217a6c3e631fcaf3e950062310bfb4a8bbcecc330eb7b2f60ed
+      https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/v4.0.0/1.17/typesUnion.dhall sha256:61d9d79f8de701e9442a796f35cf1761a33c9d60e0dadb09f882c9eb60978323
 
 let Cluster = ./cluster/type.dhall
 
-let toList = \(nats : Cluster) -> 
-  let labels = Some (toMap { app = nats.name })
-  let metadata = kubernetes.ObjectMeta::{ 
-    , name = nats.name
-    , labels = labels
-  }
+let toList =
+        λ(nats : Cluster)
+      → let labels = Some (toMap { app = nats.name })
 
-  let clientHostPort = if nats.externalAccess then Some 4222 else None Natural
+        let metadata =
+              kubernetes.ObjectMeta::{ name = nats.name, labels = labels }
 
-  let clientPort = kubernetes.ContainerPort::{ 
-    , containerPort = 4222
-    , name = Some nats.name
-    , hostPort = clientHostPort
-  }
+        let cmMetadata =
+              kubernetes.ObjectMeta::{
+              , name = "${nats.name}-config"
+              , labels = labels
+              }
 
-  -- let svc = kubernetes.Service::{
-  --     , metadata = metadata
-  --     , spec = kubernetes.ServiceSpec::{
-  --       , selector = labels
-  --       , type = Some "None"
-  --     }
-  -- }
+        let clientHostPort =
+              if nats.externalAccess then Some nats.clientPort else None Natural
 
-  let sts =
-      kubernetes.StatefulSet::{
-       metadata = metadata,
-       spec = Some kubernetes.StatefulSetSpec::{
-         serviceName = nats.name,
-         selector = kubernetes.LabelSelector::{
-           matchLabels = labels
-          },
-         replicas = Some nats.size,
-         template = kubernetes.PodTemplateSpec::{
-           metadata = metadata,
-           spec = Some kubernetes.PodSpec::{
-             containers =
-              [ kubernetes.Container::{
-                 name = nats.name,
-                 image = Some nats.image,
-                 ports = Some
-                    [
-                      clientPort
-                    ]
+        let clientPort =
+              kubernetes.ContainerPort::{
+              , containerPort = nats.clientPort
+              , name = Some nats.name
+              , hostPort = clientHostPort
+              }
+
+        let natsConfFile = "nats.conf"
+
+        let serverConfig =
+              ''
+              port = ${Natural/show nats.clientPort}
+              http = ${Natural/show nats.monitoringPort}
+
+              cluster {
+                port = ${Natural/show nats.clusterPort}
+
+                routes [
+                  nats://${nats.name}-0.${nats.name}.${nats.namespace}.svc:${Natural/show
+                                                                               nats.clusterPort}
+                  nats://${nats.name}-1.${nats.name}.${nats.namespace}.svc:${Natural/show
+                                                                               nats.clusterPort}
+                  nats://${nats.name}-2.${nats.name}.${nats.namespace}.svc:${Natural/show
+                                                                               nats.clusterPort}
+                ]
+              }
+              ''
+
+        let configVolume =
+              kubernetes.Volume::{
+              , name = "config-volume"
+              , configMap = Some kubernetes.ConfigMapVolumeSource::{
+                , name = Some cmMetadata.name
                 }
+              }
+
+        let configVolMount =
+              kubernetes.VolumeMount::{
+              , name = configVolume.name
+              , mountPath = "/etc/nats"
+              }
+
+        let command =
+              [ "/nats-server"
+              , "-c"
+              , "${configVolMount.mountPath}/${natsConfFile}"
               ]
+
+        let natsContainer =
+              kubernetes.Container::{
+              , name = "nats"
+              , image = Some nats.image
+              , ports = Some [ clientPort ]
+              , command = Some command
+              , volumeMounts = Some [ configVolMount ]
+              }
+
+        let cm =
+              kubernetes.ConfigMap::{
+              , metadata = cmMetadata
+              , data = Some
+                [ { mapKey = natsConfFile, mapValue = serverConfig } ]
+              }
+
+        let sts =
+              kubernetes.StatefulSet::{
+              , metadata = metadata
+              , spec = Some kubernetes.StatefulSetSpec::{
+                , serviceName = nats.name
+                , selector = kubernetes.LabelSelector::{ matchLabels = labels }
+                , replicas = Some nats.size
+                , template = kubernetes.PodTemplateSpec::{
+                  , metadata = metadata
+                  , spec = Some kubernetes.PodSpec::{
+                    , containers = [ natsContainer ]
+                    , volumes = Some [ configVolume ]
+                    }
+                  }
+                }
+              }
+
+        let svc =
+              kubernetes.Service::{
+              , metadata = metadata
+              , spec = Some kubernetes.ServiceSpec::{
+                , selector = labels
+                , clusterIP = Some "None"
+                , ports = Some
+                  [ kubernetes.ServicePort::{
+                    , name = Some "client"
+                    , port = nats.clientPort
+                    , targetPort = Some
+                        (kubernetes.IntOrString.Int nats.clientPort)
+                    }
+                  ]
+                }
+              }
+
+        in  { apiVersion = "v1"
+            , kind = "List"
+            , items =
+              [ kind.ConfigMap cm, kind.Service svc, kind.StatefulSet sts ]
             }
-          }
-        }
-      }
-  in { apiVersion = "v1", kind = "List", items = [ sts ] }
 
-in toList
+in  toList
 #+END_SRC
 
-** Example
 
-#+BEGIN_SRC dhall :results output code :exports both
-let NATS = ./k8s/package.dhall
-
-let cluster = NATS.Cluster:: {
-    , name = "my-nats"
-    , image = "nats:latest"
-    , externalAccess = True
-    , size = 3
-}
-
-in NATS.toList cluster
-#+END_SRC
-
-#+BEGIN_SRC yaml
-apiVersion: v1
-items:
-  - apiVersion: apps/v1
-    kind: StatefulSet
-    metadata:
-      labels:
-        app: my-nats
-      name: my-nats
-    spec:
-      replicas: 3
-      selector:
-        matchLabels:
-          app: my-nats
-      serviceName: my-nats
-      template:
-        metadata:
-          labels:
-            app: my-nats
-          name: my-nats
-        spec:
-          containers:
-            - image: nats:latest
-              name: my-nats
-              ports:
-                - containerPort: 4222
-                  hostPort: 4222
-                  name: my-nats
-kind: List
-#+END_SRC
