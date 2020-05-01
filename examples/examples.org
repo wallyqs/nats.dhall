@@ -3,44 +3,14 @@
 #+TITLE:    nats.dhall examples
 #+property: :header-args: :results output code :mkdirp true
 
-* COMMENT Using Dhall to create NATS clusters
+* Basic NATS Cluster with 3 nodes on K8S
 
-#+BEGIN_SRC dhall :results output
-let NATS = https://wallyqs.github.io/nats.dhall/k8s/package.dhall
-
--- Creates 
-let cluster = NATS.Cluster::{
-  , name = "nats-cluster"
-  , size = 3
-}
-
-in NATS.K8S.toList cluster
-#+END_SRC
-
-#+RESULTS:
-
-#+BEGIN_SRC sh :results output
-kubectl logs nats-cluster-0 
-#+END_SRC
-
-#+RESULTS:
-: [1] 2020/03/04 21:28:44.673047 [INF] Starting nats-server version 2.1.4
-: [1] 2020/03/04 21:28:44.673092 [INF] Git commit [fb009af]
-: [1] 2020/03/04 21:28:44.673240 [INF] Starting http monitor on 0.0.0.0:8222
-: [1] 2020/03/04 21:28:44.673288 [INF] Listening for client connections on 0.0.0.0:4222
-: [1] 2020/03/04 21:28:44.673296 [INF] Server id is NAWYKAPGNEGXNRX4VVRUPBNIZGTP4FZ7ENZP7ZZKC3DSBS3BZ4W6NGBR
-: [1] 2020/03/04 21:28:44.673356 [INF] Server is ready
-: [1] 2020/03/04 21:28:44.673599 [INF] Listening for route connections on 0.0.0.0:6222
-
-* NATS Cluster with 3 nodes on K8S
+Basic example of creating a 3-node NATS cluster.
 
 #+BEGIN_SRC dhall :tangle k8s-cluster.dhall :results output code
-let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
+let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/k8s/package.dhall
 
-let kind =
-      https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/v4.0.0/1.17/typesUnion.dhall sha256:61d9d79f8de701e9442a796f35cf1761a33c9d60e0dadb09f882c9eb60978323
-
-let nats/cluster =
+let cluster =
       NATS.Server.Cluster::{
       , name = "my-nats"
       , namespace = "default"
@@ -48,55 +18,14 @@ let nats/cluster =
       , size = 3
       }
 
-let nats/k8s/cluster = NATS.K8S.toK8S nats/cluster
+let natsk8s = NATS.K8S.toK8S cluster
 
-in  { apiVersion = "v1"
-    , kind = "List"
-    , items =
-      [ kind.ConfigMap nats/k8s/cluster.ConfigMap
-      , kind.Service nats/k8s/cluster.Service
-      , kind.StatefulSet nats/k8s/cluster.StatefulSet
-      ]
-    }
+in  NATS.K8S.toList natsk8s
 #+END_SRC
 
-#+BEGIN_SRC dhall
+#+BEGIN_SRC yaml
 apiVersion: v1
 items:
-  - apiVersion: v1
-    data:
-      nats.conf: |
-        port = 4222
-        http = 8222
-        
-        cluster {
-          port = 6222
-        
-          routes [
-            nats://my-nats-0.my-nats.default.svc:6222
-            nats://my-nats-1.my-nats.default.svc:6222
-            nats://my-nats-2.my-nats.default.svc:6222
-          ]
-        }
-    kind: ConfigMap
-    metadata:
-      labels:
-        app: my-nats
-      name: my-nats-config
-  - apiVersion: v1
-    kind: Service
-    metadata:
-      labels:
-        app: my-nats
-      name: my-nats
-    spec:
-      clusterIP: None
-      ports:
-        - name: client
-          port: 4222
-          targetPort: 4222
-      selector:
-        app: my-nats
   - apiVersion: apps/v1
     kind: StatefulSet
     metadata:
@@ -132,5 +61,43 @@ items:
             - configMap:
                 name: my-nats-config
               name: config-volume
+  - apiVersion: v1
+    data:
+      nats.conf: |
+        port = 4222
+        http = 8222
+        
+        cluster {
+          port = 6222
+        
+          routes = [
+        
+            nats://my-nats-0.my-nats.default.svc:6222
+            nats://my-nats-1.my-nats.default.svc:6222
+            nats://my-nats-2.my-nats.default.svc:6222
+          ]
+        }
+    kind: ConfigMap
+    metadata:
+      labels:
+        app: my-nats
+      name: my-nats-config
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app: my-nats
+      name: my-nats
+    spec:
+      clusterIP: None
+      ports:
+        - name: client
+          port: 4222
+          targetPort: 4222
+      selector:
+        app: my-nats
 kind: List
 #+END_SRC
+
+
+

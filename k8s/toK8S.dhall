@@ -3,6 +3,8 @@ let kubernetes =
 
 let NATS/Cluster = ../server/cluster/type.dhall
 
+let NATS/K8S/Cluster = ./cluster.dhall
+
 let toK8S =
         λ(nats : NATS/Cluster)
       → let labels = Some (toMap { app = nats.name })
@@ -36,7 +38,8 @@ let toK8S =
               cluster {
                 port = ${Natural/show nats.clusterPort}
 
-                routes [
+                routes = [
+
                   nats://${nats.name}-0.${nats.name}.${nats.namespace}.svc:${Natural/show
                                                                                nats.clusterPort}
                   nats://${nats.name}-1.${nats.name}.${nats.namespace}.svc:${Natural/show
@@ -116,7 +119,10 @@ let toK8S =
                   ]
                 }
               }
-
-        in  { StatefulSet = sts, ConfigMap = cm, Service = svc }
+         in NATS/K8S/Cluster::{ 
+           , StatefulSet = sts
+           , ConfigMap = cm
+           , Service = svc 
+         }
 
 in  toK8S
