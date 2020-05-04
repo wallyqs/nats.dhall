@@ -8,7 +8,7 @@
 
 <img src="nats-dhall-logo.svg" width="300">
 
-A [Dhall](http://dhall-lang.org/) package to setup [NATS.io](https://nats.io) clusters on Kubernetes ([dhall-kubernetes](https://github.com/dhall-lang/dhall-kubernetes)).
+A [Dhall](http://dhall-lang.org/) package to setup [NATS.io](https://nats.io) clusters on Kubernetes (via [dhall-kubernetes](https://github.com/dhall-lang/dhall-kubernetes)).
 
 ## Getting started
 
