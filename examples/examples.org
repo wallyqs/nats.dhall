@@ -5,10 +5,8 @@
 
 * Basic NATS Cluster with 3 nodes on K8S
 
-Basic example of creating a 3-node NATS cluster.
-
-#+BEGIN_SRC dhall :tangle k8s-cluster.dhall :results output code
-let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/k8s/package.dhall
+#+BEGIN_SRC dhall :export both :tangle k8s-cluster.dhall :results output code
+let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
 
 let cluster =
       NATS.Server.Cluster::{
@@ -23,7 +21,8 @@ let natsk8s = NATS.K8S.toK8S cluster
 in  NATS.K8S.toList natsk8s
 #+END_SRC
 
-#+BEGIN_SRC yaml
+#+RESULTS:
+#+BEGIN_SRC dhall
 apiVersion: v1
 items:
   - apiVersion: apps/v1
@@ -99,5 +98,34 @@ items:
 kind: List
 #+END_SRC
 
+* Generate NATS Server configuration
+
+#+BEGIN_SRC dhall :export both :tangle nats-conf.dhall :results output code
+let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
+
+let cluster =
+      NATS.Server.Cluster::{
+      , name = "another-nats"
+      , namespace = "nats-io"
+      , image = "nats:latest"
+      , size = 3
+      }
+
+in NATS.Server.toConf cluster
+#+END_SRC
+
+#+RESULTS:
+#+BEGIN_SRC dhall
+|
+port = 4222
+http = 8222
+
+cluster {
+  port = 6222
+  routes = [
+    nats://another-nats.nats-io.svc:6222
+  ]
+}
+#+END_SRC
 
 

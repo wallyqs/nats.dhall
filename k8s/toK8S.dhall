@@ -1,6 +1,8 @@
 let kubernetes =
       https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/v4.0.0/1.17/package.dhall sha256:d9eac5668d5ed9cb3364c0a39721d4694e4247dad16d8a82827e4619ee1d6188
 
+let NATS/toConf = ../server/toConf.dhall
+
 let NATS/Cluster = ../server/cluster/type.dhall
 
 let NATS/K8S/Cluster = ./cluster.dhall
@@ -10,12 +12,13 @@ let toK8S =
       → let labels = Some (toMap { app = nats.name })
 
         let metadata =
-              kubernetes.ObjectMeta::{ name = nats.name, labels = labels }
+              kubernetes.ObjectMeta::{ name = nats.name, labels = labels, namespace = Some nats.namespace }
 
         let cmMetadata =
               kubernetes.ObjectMeta::{
               , name = "${nats.name}-config"
               , labels = labels
+	      , namespace = Some nats.namespace
               }
 
         let clientHostPort =
@@ -30,25 +33,7 @@ let toK8S =
 
         let natsConfFile = "nats.conf"
 
-        let serverConfig =
-              ''
-              port = ${Natural/show nats.clientPort}
-              http = ${Natural/show nats.monitoringPort}
-
-              cluster {
-                port = ${Natural/show nats.clusterPort}
-
-                routes = [
-
-                  nats://${nats.name}-0.${nats.name}.${nats.namespace}.svc:${Natural/show
-                                                                               nats.clusterPort}
-                  nats://${nats.name}-1.${nats.name}.${nats.namespace}.svc:${Natural/show
-                                                                               nats.clusterPort}
-                  nats://${nats.name}-2.${nats.name}.${nats.namespace}.svc:${Natural/show
-                                                                               nats.clusterPort}
-                ]
-              }
-              ''
+        let serverConfig = NATS/toConf nats
 
         let configVolume =
               kubernetes.Volume::{
@@ -119,10 +104,11 @@ let toK8S =
                   ]
                 }
               }
-         in NATS/K8S/Cluster::{ 
-           , StatefulSet = sts
-           , ConfigMap = cm
-           , Service = svc 
-         }
+
+        in  NATS/K8S/Cluster::{
+            , StatefulSet = sts
+            , ConfigMap = cm
+            , Service = svc
+            }
 
 in  toK8S

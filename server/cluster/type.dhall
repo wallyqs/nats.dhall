@@ -5,7 +5,7 @@ let Cluster : Type = {
   , externalAccess : Bool
   , size : Natural
 
-  -- FIXME: Should ports be part of the server config instead?
+  -- FIXME: Move this into its own type.
   , clientPort : Natural
   , clusterPort : Natural
   , leafnodePort : Natural
