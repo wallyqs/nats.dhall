@@ -1,0 +1,29 @@
+name: ci
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Minikube (Single node Kubernetes) Action
+      uses: opsgang/ga-setup-minikube@v0.1.1
+    - name: Setup Dhall
+      uses: dhall-lang/setup-dhall@v4
+    - name: Testing
+      run: |
+        which dhall-to-yaml
+        minikube config set vm-driver kvm2
+        minikube config set kubernetes-version=v1.15.1
+        minikube start
+        minikube update-context
+        kubectl cluster-info
+        kubectl get pods -n kube-system      
+    - name: Run a multi-line script
+      run: |
+        ls -la
+        
+        
