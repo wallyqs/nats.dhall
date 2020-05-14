@@ -17,7 +17,6 @@ jobs:
       run: |
         which dhall-to-yaml
         minikube config set vm-driver kvm2
-        minikube config set kubernetes-version=v1.15.1
         minikube start
         minikube update-context
         kubectl cluster-info
