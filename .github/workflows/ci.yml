@@ -1,0 +1,26 @@
+name: ci
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup Dhall
+      uses: dhall-lang/setup-dhall@v4
+    - name: Setup Minikube
+      uses: manusa/actions-setup-minikube@v1.0.2
+      with:
+        minikube version: 'v1.9.2'
+        kubernetes version: 'v1.18.2'
+    - name: Testing
+      run: |
+        which dhall-to-yaml
+        kubectl cluster-info
+        kubectl get pods -n kube-system      
+    - name: Run a multi-line script
+      run: |
+        ls -la
