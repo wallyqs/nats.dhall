@@ -1,0 +1,32 @@
+{- Create a CONF bool from a Dhall `Bool`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.bool True)
+= "true"
+
+let CONF = ./package.dhall
+in  CONF.render (CONF.bool False)
+= "false"
+```
+-}
+let CONF = ../Type
+
+let bool
+    : Bool → CONF
+    = λ(x : Bool) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.bool x
+
+in  bool

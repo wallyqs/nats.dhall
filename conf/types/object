@@ -1,0 +1,49 @@
+{- Create a CONF object from a Dhall `Map`
+
+```
+let CONF = ./package.dhall
+in  CONF.render
+    ( CONF.object
+      [ { mapKey = "foo", mapValue = CONF.double 1.0 }
+      , { mapKey = "bar", mapValue = CONF.bool True  }
+      ]
+    )
+= "{ \"foo\": 1.0, \"bar\": true }"
+
+let CONF/Type = ./Type
+let CONF = ./package.dhall
+in  CONF.render
+    (CONF.object ([] : List { mapKey : Text, mapValue : CONF/Type }))
+= "{ }"
+```
+-}
+let CONF = ../Type
+
+let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/map
+
+let object
+    : List { mapKey : Text, mapValue : CONF } → CONF
+    = λ(x : List { mapKey : Text, mapValue : CONF }) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.object
+          ( List/map
+              { mapKey : Text, mapValue : CONF@1 }
+              { mapKey : Text, mapValue : CONF }
+              ( λ(kv : { mapKey : Text, mapValue : CONF@1 }) →
+                  { mapKey = kv.mapKey, mapValue = kv.mapValue CONF conf }
+              )
+              x
+          )
+
+in  object

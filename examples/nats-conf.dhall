@@ -8,4 +8,4 @@ let cluster =
       , size = 3
       }
 
-in NATS.Server.toConf cluster
+in  NATS.Server.toConf cluster

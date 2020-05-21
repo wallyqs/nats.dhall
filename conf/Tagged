@@ -1,0 +1,68 @@
+{-
+Example:
+
+```
+let map = ../List/map
+
+let Provisioner =
+      < shell :
+          { inline : List Text }
+      | file :
+          { source : Text, destination : Text }
+      >
+
+let Tagged = ./Tagged
+
+let Nesting = ./Nesting
+
+let wrap
+    : Provisioner → Tagged Provisioner
+    = λ(x : Provisioner) →
+        { field = "type", nesting = Nesting.Nested "params", contents = x }
+
+in  { provisioners =
+        map
+        Provisioner
+        (Tagged Provisioner)
+        wrap
+        [ Provisioner.shell { inline = [ "echo foo" ] }
+        , Provisioner.file
+          { source = "app.tar.gz", destination = "/tmp/app.tar.gz" }
+        ]
+    }
+```
+
+... produces this CONF:
+
+```
+{
+  "provisioners": [
+    {
+      "params": {
+        "inline": [
+          "echo foo"
+        ]
+      },
+      "type": "shell"
+    },
+    {
+      "params": {
+        "destination": "/tmp/app.tar.gz",
+        "source": "app.tar.gz"
+      },
+      "type": "file"
+    }
+  ]
+}
+```
+
+-}
+let Tagged
+    : Type → Type
+    = λ(a : Type) →
+        { field : Text
+        , nesting : ./Nesting
+        , contents : a
+        }
+
+in  Tagged

@@ -8,6 +8,5 @@ let cluster =
       , size = 3
       }
 
-let natsk8s = NATS.K8S.toK8S cluster
-
-in  NATS.K8S.toList natsk8s
+let nats/k8s = NATS.K8S.toK8S cluster
+in NATS.K8S.toList nats/k8s

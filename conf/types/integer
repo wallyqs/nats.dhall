@@ -1,0 +1,32 @@
+{- Create a CONF number from a Dhall `Integer`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.integer -1)
+= "-1"
+
+let CONF = ./package.dhall
+in  CONF.render (CONF.integer +2)
+= "+2"
+```
+-}
+let CONF = ../Type
+
+let integer
+    : Integer → CONF
+    = λ(x : Integer) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.integer x
+
+in  integer

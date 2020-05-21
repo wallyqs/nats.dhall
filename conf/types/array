@@ -1,0 +1,35 @@
+{- Create a CONF array from a `List` of CONF values
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.array [ CONF.double 1.0, CONF.bool True ])
+= "[ 1.0, true ]"
+
+let CONF/Type = ./Type
+let CONF = ./package.dhall
+in  CONF.render (CONF.array ([] : List CONF/Type))
+= "[ ]"
+```
+-}
+let CONF = ../Type
+
+let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/map
+
+let array
+    : List CONF → CONF
+    = λ(x : List CONF) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.array (List/map CONF@1 CONF (λ(j : CONF@1) → j CONF conf) x)
+
+in  array

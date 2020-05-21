@@ -1,0 +1,39 @@
+{- Render a `CONF` value as `Text`
+-}
+let CONF = ./core.dhall
+
+let renderAs = ./renderAs
+
+let Format = ./Format
+
+let render
+    : CONF.Type → Text
+    = renderAs Format.CONF
+
+let example0 =
+      let data =
+              assert
+            :   render
+                  ( CONF.array
+                      [ CONF.bool True
+                      , CONF.string "Hello"
+                      , CONF.object
+                          [ { mapKey = "foo", mapValue = CONF.null }
+                          , { mapKey = "bar", mapValue = CONF.double 1.0 }
+                          ]
+                      ]
+                  )
+              ≡ ''
+                [
+                  true,
+                  "Hello",
+                  {
+                    foo null,
+                    bar 1.0
+                  }
+                ]
+                ''
+
+      in  True
+
+in  render

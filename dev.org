@@ -3,7 +3,7 @@
 #+TITLE:    nats.dhall
 #+property: :header-args: :results output code :mkdirp true
 
-A [[https://dhall-lang.org/][Dhall]] package to work with [[https://nats.io][NATS]] configuration objects.
+A [[https://dhall-lang.org/][Dhall]] package to configure [[https://nats.io][NATS]].
 
 * COMMENT Dev Setup
 
@@ -12,13 +12,14 @@ Setting up the prelude both for Emacs and local development.
 #+BEGIN_SRC emacs-lisp
 (setenv "NATS_PRELUDE" (concat default-directory "package.dhall"))
 (setq dhall-command "/usr/local/bin/dhall")
+(setq dhall-format-at-save nil)
 #+END_SRC
 
 #+BEGIN_SRC sh :tangle .env
 export NATS_PRELUDE=$(pwd)/package.dhall
 #+END_SRC
 
-* =nats.dhall= package
+* NATS.dhall
 
 ** NATS Package
 
@@ -35,90 +36,115 @@ export NATS_PRELUDE=$(pwd)/package.dhall
 
 #+BEGIN_SRC dhall :tangle server/package.dhall
 {
-  , Cluster = ./cluster/schemas.dhall
+  , Cluster = ./cluster.dhall
+  , Config = ./config.dhall
   , toConf = ./toConf.dhall
 }
 #+END_SRC
 
-*** Schemas
+*** Types
 
-#+BEGIN_SRC dhall :tangle server/cluster/schemas.dhall
-{
-  , Type = ./type.dhall
-  , default = ./default.dhall
-}
+**** Cluster
+
+#+BEGIN_SRC dhall :tangle server/cluster.dhall
+let Cluster
+    : Type
+    = { name : Text
+      , namespace : Text
+      , image : Text
+      , externalAccess : Bool
+      , size : Natural
+      , clientPort : Natural
+      , clusterPort : Natural
+      , leafnodePort : Natural
+      , gatewayPort : Natural
+      , monitoringPort : Natural
+      }
+
+let defaultCluster =
+      { name = None Text
+      , namespace = "default"
+      , image = "nats:latest"
+      , externalAccess = False
+      , size = 1
+      , clientPort = 4222
+      , clusterPort = 6222
+      , leafnodePort = 7422
+      , gatewayPort = 7522
+      , monitoringPort = 8222
+      }
+
+in  { default = defaultCluster, Type = Cluster }
 #+END_SRC
 
-*** Cluster:Type
+**** Config
 
-#+BEGIN_SRC dhall :tangle server/cluster/type.dhall
-let Cluster : Type = {
-  , name : Text
-  , namespace : Text
-  , image : Text
-  , externalAccess : Bool
-  , size : Natural
+#+BEGIN_SRC dhall :tangle server/config.dhall
+let Config
+    : Type
+    = { clientPort : Natural
+      , monitoringPort : Natural
+      , clusterPort : Natural
+      }
 
-  -- FIXME: Move this into its own type.
-  , clientPort : Natural
-  , clusterPort : Natural
-  , leafnodePort : Natural
-  , gatewayPort : Natural
-  , monitoringPort : Natural
-}
+let defaultConfig =
+      { clientPort = 4222
+      , monitoringPort = 8222
+      , clusterPort = 6222
+      }
 
-in Cluster
+in  { default = defaultConfig, Type = Config }
 #+END_SRC
 
-*** Cluster:Defaults
+*** Functions
 
-#+BEGIN_SRC dhall :tangle server/cluster/default.dhall
-{ name = None Text
-, namespace = "default"
-, image = "nats:latest"
-, externalAccess = False
-, size = 1
-, clientPort = 4222
-, clusterPort = 6222
-, leafnodePort = 7422
-, gatewayPort = 7522
-, monitoringPort = 8222
-}
-#+END_SRC
-
-*** toConf
+**** toConf
 
 #+BEGIN_SRC dhall :tangle server/toConf.dhall 
 let Natural/equal =
-      https://raw.githubusercontent.com/dhall-lang/dhall-lang/v15.0.0/Prelude/Natural/equal
+      https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Natural/equal
 
-let NATS/Cluster = ./cluster/type.dhall
+let NATS/Cluster = ./cluster.dhall
+
+let NATS/Conf = ../conf/package.dhall
 
 let toConf =
-    {- toConf takes a NATS cluster and generates a configuration map.
-    TODO: Make a server conf package to represent in types.
+    {- toConf takes a NATS/Cluster and generates the NATS Server configuration
+       that can be stored in ConfigMap.
     -}
-        λ(nats : NATS/Cluster)
-      → let clusterPort = Natural/show nats.clusterPort
+        λ(nats : NATS/Cluster.Type)
+      → let name = nats.name
+        let namespace = nats.name
+        let client = {
+          , port = Natural/toInteger nats.clientPort
+        }
+        let monitoring = {
+          , port = Natural/toInteger nats.monitoringPort
+        }
+        let cluster = {
+          , port = Natural/toInteger nats.clusterPort
+          , host = "0.0.0.0"
+          , routes = if Natural/equal nats.size 1
+                     then  ""
+                     else  "nats://${name}.${namespace}.svc:${Natural/show nats.clusterPort}"
+        }
 
-        let routes =
-                    if Natural/equal nats.size 1
+        let conf = NATS/Conf.object
+        [
+          , { mapKey = "port", mapValue = NATS/Conf.integer client.port }
+          , { mapKey = "http", mapValue = NATS/Conf.integer monitoring.port }
+          , { mapKey = "cluster", mapValue = NATS/Conf.object [
+               , { mapKey = "port", mapValue = NATS/Conf.integer cluster.port }
+               , { mapKey = "routes", mapValue = NATS/Conf.array 
+                   [
+                     NATS/Conf.string cluster.routes
+                   ] 
+                 }
+             ]
+          }
+        ]
 
-              then  ""
-
-              else  "nats://${nats.name}.${nats.namespace}.svc:${clusterPort}"
-
-        in  ''
-            port = ${Natural/show nats.clientPort}
-            http = ${Natural/show nats.monitoringPort}
-
-            cluster {
-              port = ${Natural/show nats.clusterPort}
-              routes = [
-                ${routes}
-              ]
-            }
-            ''
+        in NATS/Conf.render conf
 
 in  toConf
 #+END_SRC
@@ -134,7 +160,9 @@ in  toConf
 }
 #+END_SRC
 
-*** NATS/K8S/Cluster
+*** Types
+
+**** NATS.K8S.Cluster
 
 #+BEGIN_SRC dhall :tangle k8s/cluster.dhall
 let kubernetes =
@@ -156,7 +184,9 @@ let defaultCluster =
 in  { default = defaultCluster, Type = Cluster }
 #+END_SRC
 
-*** toK8S
+*** Functions
+
+**** toK8S
 
 #+BEGIN_SRC dhall :tangle k8s/toK8S.dhall
 let kubernetes =
@@ -164,12 +194,12 @@ let kubernetes =
 
 let NATS/toConf = ../server/toConf.dhall
 
-let NATS/Cluster = ../server/cluster/type.dhall
+let NATS/Cluster = ../server/cluster.dhall
 
 let NATS/K8S/Cluster = ./cluster.dhall
 
 let toK8S =
-        λ(nats : NATS/Cluster)
+        λ(nats : NATS/Cluster.Type)
       → let labels = Some (toMap { app = nats.name })
 
         let metadata =
@@ -275,7 +305,7 @@ let toK8S =
 in  toK8S
 #+END_SRC
 
-*** toList
+**** toList
 
 #+BEGIN_SRC dhall :tangle k8s/toList.dhall
 let kind =
@@ -296,3 +326,5 @@ let toList =
 
 in  toList
 #+END_SRC
+
+

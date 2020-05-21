@@ -3,12 +3,12 @@ let kubernetes =
 
 let NATS/toConf = ../server/toConf.dhall
 
-let NATS/Cluster = ../server/cluster/type.dhall
+let NATS/Cluster = ../server/cluster.dhall
 
 let NATS/K8S/Cluster = ./cluster.dhall
 
 let toK8S =
-        λ(nats : NATS/Cluster)
+        λ(nats : NATS/Cluster.Type)
       → let labels = Some (toMap { app = nats.name })
 
         let metadata =

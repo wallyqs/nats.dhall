@@ -1,0 +1,413 @@
+{- Render a `CONF` value as `Text` in NATS Configuration Format -}
+
+let CONF = ./core.dhall
+
+let Function/identity = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/Function/identity
+
+let Text/concatMap = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/Text/concatMap
+
+let List/take = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/take
+
+let List/drop = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/drop
+
+let List/null = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/null
+
+let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/map
+
+let List/concatMap = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/concatMap
+
+let Optional/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/Optional/map
+
+let NonEmpty
+    : Type → Type
+    = λ(a : Type) → { head : a, tail : List a }
+
+let List/uncons
+    : ∀(a : Type) → List a → Optional (NonEmpty a)
+    = λ(a : Type) →
+      λ(ls : List a) →
+        Optional/map
+          a
+          (NonEmpty a)
+          (λ(head : a) → { head, tail = List/drop 1 a ls })
+          (List/head a ls)
+
+let NonEmpty/singleton
+    : ∀(a : Type) → a → NonEmpty a
+    = λ(a : Type) → λ(x : a) → { head = x, tail = [] : List a }
+
+let NonEmpty/toList
+    : ∀(a : Type) → NonEmpty a → List a
+    = λ(a : Type) → λ(nonEmpty : NonEmpty a) → [ nonEmpty.head ] # nonEmpty.tail
+
+let NonEmpty/concat
+    : ∀(a : Type) → NonEmpty (NonEmpty a) → NonEmpty a
+    = λ(a : Type) →
+      λ(lss : NonEmpty (NonEmpty a)) →
+        { head = lss.head.head
+        , tail =
+              lss.head.tail
+            # List/concatMap (NonEmpty a) a (NonEmpty/toList a) lss.tail
+        }
+
+let NonEmpty/map
+    : ∀(a : Type) → ∀(b : Type) → (a → b) → NonEmpty a → NonEmpty b
+    = λ(a : Type) →
+      λ(b : Type) →
+      λ(fn : a → b) →
+      λ(ls : NonEmpty a) →
+        { head = fn ls.head, tail = List/map a b fn ls.tail }
+
+let NonEmpty/mapHead
+    : ∀(a : Type) → (a → a) → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(fn : a → a) →
+      λ(ls : NonEmpty a) →
+        ls ⫽ { head = fn ls.head }
+
+let NonEmpty/mapTail
+    : ∀(a : Type) → (a → a) → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(fn : a → a) →
+      λ(ls : NonEmpty a) →
+        ls ⫽ { tail = List/map a a fn ls.tail }
+
+let List/splitAt
+    : Natural → ∀(a : Type) → List a → { head : List a, tail : List a }
+    = λ(index : Natural) →
+      λ(a : Type) →
+      λ(ls : List a) →
+        { head = List/take index a ls, tail = List/drop index a ls }
+
+let _testSplitAt0 =
+        assert
+      :   List/splitAt 0 Natural [ 1, 2, 3 ]
+        ≡ { head = [] : List Natural, tail = [ 1, 2, 3 ] }
+
+let _testSplitAt1 =
+        assert
+      : List/splitAt 1 Natural [ 1, 2, 3 ] ≡ { head = [ 1 ], tail = [ 2, 3 ] }
+
+let _testSplitAt3 =
+        assert
+      :   List/splitAt 3 Natural [ 1, 2, 3 ]
+        ≡ { head = [ 1, 2, 3 ], tail = [] : List Natural }
+
+let _testSplitAt =
+        assert
+      :   List/splitAt 1 Natural ([] : List Natural)
+        ≡ { head = [] : List Natural, tail = [] : List Natural }
+
+let List/splitLast =
+      λ(a : Type) →
+      λ(ls : List a) →
+        List/splitAt (Natural/subtract 1 (List/length a ls)) a ls
+
+let NonEmpty/prepend
+    : ∀(a : Type) → a → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(prefix : a) →
+      λ(ls : NonEmpty a) →
+        { head = prefix, tail = NonEmpty/toList a ls }
+
+let NonEmpty/append
+    : ∀(a : Type) → a → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(suffix : a) →
+      λ(ls : NonEmpty a) →
+        { head = ls.head, tail = ls.tail # [ suffix ] }
+
+let NonEmpty/mapLast
+    : ∀(a : Type) → (a → a) → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(fn : a → a) →
+      λ(ls : NonEmpty a) →
+        if    List/null a ls.tail
+        then  { head = fn ls.head, tail = [] : List a }
+        else  let split = List/splitLast a ls.tail
+
+              in  { head = ls.head
+                  , tail = split.head # List/map a a fn split.tail
+                  }
+
+let NonEmpty/mapLeading
+    : ∀(a : Type) → (a → a) → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(fn : a → a) →
+      λ(ls : NonEmpty a) →
+        if    List/null a ls.tail
+        then  ls
+        else  let split = List/splitLast a ls.tail
+
+              in  { head = fn ls.head
+                  , tail = List/map a a fn split.head # split.tail
+                  }
+
+let Lines
+    : Type
+    = NonEmpty Text
+
+let Block
+    : Type
+    = < Simple : Text | Complex : Lines >
+
+let Block/toLines
+    : Block → Lines
+    = λ(block : Block) →
+        merge
+          { Simple = NonEmpty/singleton Text
+          , Complex = Function/identity Lines
+          }
+          block
+
+let manyBlocks
+    : ∀(a : Type) → Text → (NonEmpty a → Lines) → List a → Block
+    = λ(a : Type) →
+      λ(ifEmpty : Text) →
+      λ(render : NonEmpty a → Lines) →
+      λ(inputs : List a) →
+        merge
+          { Some = λ(inputs : NonEmpty a) → Block.Complex (render inputs)
+          , None = Block.Simple ifEmpty
+          }
+          (List/uncons a inputs)
+
+let blockToText
+    : Block → Text
+    = λ(block : Block) →
+        Text/concatMap
+          Text
+          (λ(line : Text) → line ++ "\n")
+          (NonEmpty/toList Text (Block/toLines block))
+
+let addPrefix = λ(prefix : Text) → λ(line : Text) → prefix ++ line
+
+let addIndent = addPrefix "  "
+
+let indentTail = NonEmpty/mapTail Text addIndent
+
+let Format = ./Format
+
+let ObjectField = { mapKey : Text, mapValue : Block }
+
+let renderCONFStruct =
+      λ(prefix : Text) →
+      λ(suffix : Text) →
+      λ(blocks : NonEmpty Lines) →
+        let indent = NonEmpty/map Text Text addIndent
+
+        let appendComma
+            : Lines → Lines
+            = NonEmpty/mapLast Text (λ(line : Text) → line ++ ",")
+
+        let blocks = NonEmpty/mapLeading Lines appendComma blocks
+
+        let block = NonEmpty/concat Text blocks
+
+        in  if    List/null Text block.tail
+            then  NonEmpty/singleton Text "${prefix} ${block.head} ${suffix}"
+            else  NonEmpty/prepend
+                    Text
+                    prefix
+                    (NonEmpty/append Text suffix (indent block))
+
+let renderObject =
+      λ(format : Format) →
+      λ(fields : NonEmpty ObjectField) →
+        -- let keystr = λ(field : ObjectField) → "${Text/show field.mapKey}:"
+        let keystr = λ(field : ObjectField) → "${field.mapKey}"
+
+        let prefixKeyOnFirst =
+              λ(field : ObjectField) →
+                NonEmpty/mapHead
+                  Text
+                  (addPrefix "${keystr field} ")
+                  (Block/toLines field.mapValue)
+
+        let prependKeyLine =
+              λ(field : ObjectField) →
+                NonEmpty/prepend
+                  Text
+                  (keystr field)
+                  (Block/toLines field.mapValue)
+
+        let renderYAMLField =
+              λ(field : ObjectField) →
+                merge
+                  { Simple =
+                      λ(line : Text) →
+                        NonEmpty/singleton Text "${keystr field} ${line}"
+                  , Complex = λ(_ : Lines) → indentTail (prependKeyLine field)
+                  }
+                  field.mapValue
+
+        in  merge
+              { CONF =
+                  renderCONFStruct
+                    "{"
+                    "}"
+                    (NonEmpty/map ObjectField Lines prefixKeyOnFirst fields)
+              , YAML =
+                  NonEmpty/concat
+                    Text
+                    (NonEmpty/map ObjectField Lines prefixKeyOnFirst fields)
+              }
+              format
+
+let renderArray =
+      λ(format : Format) →
+      λ(fields : NonEmpty Block) →
+        merge
+          { CONF =
+              renderCONFStruct
+                "["
+                "]"
+                (NonEmpty/map Block Lines Block/toLines fields)
+          , YAML =
+              NonEmpty/concat
+                Text
+                (NonEmpty/map Block Lines Block/toLines fields)
+          }
+          format
+
+let renderAs
+    : Format → CONF.Type → Text
+    = λ(format : Format) →
+      λ(conf : CONF.Type) →
+        blockToText
+          ( conf
+              Block
+              { string = λ(x : Text) → Block.Simple (Text/show x)
+              , double = λ(x : Double) → Block.Simple (Double/show x)
+              , integer = λ(x : Integer) → Block.Simple (CONF.renderInteger x)
+              , object = manyBlocks ObjectField "{}" (renderObject format)
+              , array = manyBlocks Block "[]" (renderArray format)
+              , bool =
+                  λ(x : Bool) → Block.Simple (if x then "true" else "false")
+              , null = Block.Simple "null"
+              , envValue = λ(x : Text) → Block.Simple x
+              -- , envValue = λ(x : Text) → Block.Simple (Text/show x)
+              }
+          )
+
+-- let example0 =
+--       let data =
+--             CONF.array
+--               [ CONF.bool True
+--               , CONF.string "Hello"
+--               , CONF.object
+--                   [ { mapKey = "foo", mapValue = CONF.null }
+--                   , { mapKey = "bar", mapValue = CONF.double 1.0 }
+--                   ]
+--               ]
+
+--       let yaml =
+--               assert
+--             :   renderAs Format.YAML data
+--               ≡ ''
+--                 - true
+--                 - "Hello"
+--                 - "foo": null
+--                   "bar": 1.0
+--                 ''
+
+--       let conf =
+--               assert
+--             :   renderAs Format.CONF data
+--               ≡ ''
+--                 [
+--                   true,
+--                   "Hello",
+--                   {
+--                     "foo": null,
+--                     "bar": 1.0
+--                   }
+--                 ]
+--                 ''
+
+--       in  True
+
+-- let example1 =
+--       let data =
+--             CONF.object
+--               [ { mapKey = "zero", mapValue = CONF.array ([] : List CONF.Type) }
+--               , { mapKey = "one", mapValue = CONF.array [ CONF.string "a" ] }
+--               , { mapKey = "two"
+--                 , mapValue = CONF.array [ CONF.string "a", CONF.string "b" ]
+--                 }
+--               ]
+
+--       let yaml =
+--               assert
+--             :   renderAs Format.YAML data
+--               ≡ ''
+--                 "zero": []
+--                 "one":
+--                   - "a"
+--                 "two":
+--                   - "a"
+--                   - "b"
+--                 ''
+
+--       let conf =
+--               assert
+--             :   renderAs Format.CONF data
+--               ≡ ''
+--                 {
+--                   "zero": [],
+--                   "one": [ "a" ],
+--                   "two": [
+--                     "a",
+--                     "b"
+--                   ]
+--                 }
+--                 ''
+
+--       in  True
+
+-- let example2 =
+--       let data =
+--             CONF.object
+--               [ { mapKey = "zero"
+--                 , mapValue =
+--                     CONF.object
+--                       (toMap {=} : List { mapKey : Text, mapValue : CONF.Type })
+--                 }
+--               , { mapKey = "one"
+--                 , mapValue = CONF.object (toMap { a = CONF.null })
+--                 }
+--               , { mapKey = "two"
+--                 , mapValue =
+--                     CONF.object (toMap { a = CONF.null, b = CONF.null })
+--                 }
+--               ]
+
+--       let yaml =
+--               assert
+--             :   renderAs Format.YAML data
+--               ≡ ''
+--                 "zero": {}
+--                 "one":
+--                   "a": null
+--                 "two":
+--                   "a": null
+--                   "b": null
+--                 ''
+
+--       let conf =
+--               assert
+--             :   renderAs Format.CONF data
+--               ≡ ''
+--                 {
+--                   "zero": {},
+--                   "one": { "a": null },
+--                   "two": {
+--                     "a": null,
+--                     "b": null
+--                   }
+--                 }
+--                 ''
+
+--       in  True
+
+in  renderAs

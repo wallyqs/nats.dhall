@@ -1,0 +1,63 @@
+{- Dhall encoding of an arbitrary CONF value
+
+   For example, the following CONF value:
+
+```
+[ { "foo": null, "bar": [ 1.0, true ] } ]
+```
+
+   ... corresponds to the following Dhall expression:
+
+```
+λ(CONF : Type) →
+λ ( conf
+  : { array : List CONF → CONF
+    , bool : Bool → CONF
+    , null : CONF
+    , double : Double → CONF
+    , integer : Integer → CONF
+    , object : List { mapKey : Text, mapValue : CONF } → CONF
+    , string : Text → CONF
+    }
+  ) →
+  conf.object
+    [ { mapKey = "foo", mapValue = conf.null }
+    , { mapKey = "bar"
+      , mapValue = conf.array [ conf.double 1.0, conf.bool True ]
+      }
+    ]
+```
+
+  You do not need to create these values directly, though.  You can use
+  the utilities exported by `./package.dhall` to create values of this type,
+  such as:
+
+```
+let CONF = ./package.dhall
+
+in  CONF.object
+      [ { mapKey = "foo", mapValue = CONF.null }
+      , { mapKey = "bar"
+        , mapValue = CONF.array [ CONF.double 1.0, CONF.bool True ]
+        }
+      ]
+```
+
+-}
+let CONF/Type
+    : Type
+    = ∀(CONF : Type) →
+      ∀ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        CONF
+
+in  CONF/Type
