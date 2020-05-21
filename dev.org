@@ -37,7 +37,6 @@ export NATS_PRELUDE=$(pwd)/package.dhall
 #+BEGIN_SRC dhall :tangle server/package.dhall
 {
   , Cluster = ./cluster.dhall
-  , Config = ./config.dhall
   , toConf = ./toConf.dhall
 }
 #+END_SRC
@@ -75,25 +74,6 @@ let defaultCluster =
       }
 
 in  { default = defaultCluster, Type = Cluster }
-#+END_SRC
-
-**** Config
-
-#+BEGIN_SRC dhall :tangle server/config.dhall
-let Config
-    : Type
-    = { clientPort : Natural
-      , monitoringPort : Natural
-      , clusterPort : Natural
-      }
-
-let defaultConfig =
-      { clientPort = 4222
-      , monitoringPort = 8222
-      , clusterPort = 6222
-      }
-
-in  { default = defaultConfig, Type = Config }
 #+END_SRC
 
 *** Functions
