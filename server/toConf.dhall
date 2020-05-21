@@ -6,7 +6,8 @@ let NATS/Cluster = ./cluster.dhall
 let NATS/Conf = ../conf/package.dhall
 
 let toConf =
-    {- toConf takes a NATS cluster and generates a configuration map.
+    {- toConf takes a NATS/Cluster and generates the NATS Server configuration
+       that can be stored in ConfigMap.
     -}
         λ(nats : NATS/Cluster.Type)
       → let name = nats.name
@@ -31,7 +32,6 @@ let toConf =
           , { mapKey = "http", mapValue = NATS/Conf.integer monitoring.port }
           , { mapKey = "cluster", mapValue = NATS/Conf.object [
                , { mapKey = "port", mapValue = NATS/Conf.integer cluster.port }
-               -- , { mapKey = "host", mapValue = NATS/Conf.envValue "$NATS_HOST_NAME" }
                , { mapKey = "routes", mapValue = NATS/Conf.array 
                    [
                      NATS/Conf.string cluster.routes
@@ -40,18 +40,7 @@ let toConf =
              ]
           }
         ]
-        in NATS/Conf.render conf
 
--- ''
--- port = ${Natural/show nats.clientPort}
--- http = ${Natural/show nats.monitoringPort}
---
--- cluster {
---   port = ${Natural/show nats.clusterPort}
---   routes = [
---     ${routes}
---   ]
--- }
--- ''
+        in NATS/Conf.render conf
 
 in  toConf

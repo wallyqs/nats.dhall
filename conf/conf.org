@@ -289,21 +289,21 @@ in  render
 
 let CONF = ./core.dhall
 
-let Function/identity = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/Function/identity
+let Function/identity = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Function/identity
 
-let Text/concatMap = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/Text/concatMap
+let Text/concatMap = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Text/concatMap
 
-let List/take = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/take
+let List/take = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/take
 
-let List/drop = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/drop
+let List/drop = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/drop
 
-let List/null = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/null
+let List/null = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/null
 
-let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/map
+let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/map
 
-let List/concatMap = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/concatMap
+let List/concatMap = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/concatMap
 
-let Optional/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/Optional/map
+let Optional/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Optional/map
 
 let NonEmpty
     : Type → Type
@@ -707,7 +707,7 @@ in  renderAs
    standard, in which a number may not start with a plus sign (`+`).
 -}
 
-let Integer/nonNegative = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/Integer/nonNegative
+let Integer/nonNegative = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Integer/nonNegative
 
 let renderInteger
     : Integer → Text
@@ -723,212 +723,6 @@ let zero = assert : renderInteger +0 ≡ "0"
 let negative = assert : renderInteger -1 ≡ "-1"
 
 in  renderInteger
-#+END_SRC
-
-** COMMENT omitNullFields
-
-#+BEGIN_SRC dhall :tangle ./omitNullFields
-{-
-This utility omits all `null` record fields, which is often the idiomatic way
-for a configuration to encode absent fields
--}
-let CONF = ./core.dhall
-
-let List/concatMap = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/concatMap
-
-let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/map
-
-let omitNullFields
-    : CONF.Type → CONF.Type
-    = λ(old : CONF.Type) →
-      λ(CONF : Type) →
-      λ ( conf
-        : { array : List CONF → CONF
-          , bool : Bool → CONF
-          , double : Double → CONF
-          , integer : Integer → CONF
-          , null : CONF
-          , object : List { mapKey : Text, mapValue : CONF } → CONF
-          , string : Text → CONF
-          , envValue : Text → CONF
-          }
-        ) →
-        let result =
-              old
-                { value : CONF, isNull : Bool }
-                { string =
-                    λ(x : Text) → { value = conf.string x, isNull = False }
-                , envValue =
-                    λ(x : Text) → { value = conf.string x, isNull = False }
-                , double =
-                    λ(x : Double) → { value = conf.double x, isNull = False }
-                , integer =
-                    λ(x : Integer) → { value = conf.integer x, isNull = False }
-                , object =
-                    λ ( keyValues
-                      : List
-                          { mapKey : Text
-                          , mapValue : { value : CONF, isNull : Bool }
-                          }
-                      ) →
-                      let value =
-                            conf.object
-                              ( List/concatMap
-                                  { mapKey : Text
-                                  , mapValue : { value : CONF, isNull : Bool }
-                                  }
-                                  { mapKey : Text, mapValue : CONF }
-                                  ( λ ( keyValue
-                                      : { mapKey : Text
-                                        , mapValue :
-                                            { value : CONF, isNull : Bool }
-                                        }
-                                      ) →
-                                      if    keyValue.mapValue.isNull
-                                      then  [] : List
-                                                   { mapKey : Text
-                                                   , mapValue : CONF
-                                                   }
-                                      else  [   keyValue.{ mapKey }
-                                              ∧ { mapValue =
-                                                    keyValue.mapValue.value
-                                                }
-                                            ]
-                                  )
-                                  keyValues
-                              )
-
-                      in  { value, isNull = False }
-                , array =
-                    λ(xs : List { value : CONF, isNull : Bool }) →
-                      let value =
-                            conf.array
-                              ( List/map
-                                  { value : CONF, isNull : Bool }
-                                  CONF
-                                  ( λ(x : { value : CONF, isNull : Bool }) →
-                                      x.value
-                                  )
-                                  xs
-                              )
-
-                      in  { value, isNull = False }
-                , bool = λ(x : Bool) → { value = conf.bool x, isNull = False }
-                , null = { value = conf.null, isNull = True }
-                }
-
-        in  result.value
-
-let property =
-      λ(a : Text) →
-      λ(b : Double) →
-      λ(c : Bool) →
-          assert
-        :   omitNullFields
-              ( CONF.object
-                  ( toMap
-                      { string = CONF.string a
-                      , double = CONF.double b
-                      , bool = CONF.bool c
-                      , null = CONF.null
-                      }
-                  )
-              )
-          ≡ CONF.object
-              ( toMap
-                  { string = CONF.string a
-                  , double = CONF.double b
-                  , bool = CONF.bool c
-                  }
-              )
-
-let example =
-        assert
-      :   omitNullFields
-            ( CONF.object
-                ( toMap
-                    { array =
-                        CONF.array [ CONF.object (toMap { null = CONF.null }) ]
-                    }
-                )
-            )
-        ≡ CONF.object
-            ( toMap
-                { array =
-                    CONF.array
-                      [ CONF.object
-                          ([] : List { mapKey : Text, mapValue : CONF.Type })
-                      ]
-                }
-            )
-
-let example =
-        assert
-      : omitNullFields (CONF.array [ CONF.null ]) ≡ CONF.array [ CONF.null ]
-
-in  omitNullFields
-#+END_SRC
-
-** COMMENT tagInline
-
-#+BEGIN_SRC dhall :tangle ./tagInline
-{- Prepare a union value for CONF- or YAML-encoding with the inline layout
--}
-let Nesting = ./Nesting
-
-let Tagged = ./Tagged
-
-let tagInline
-    : Text → ∀(a : Type) → a → Tagged a
-    = λ(tagFieldName : Text) →
-      λ(a : Type) →
-      λ(contents : a) →
-        { nesting = Nesting.Inline, field = tagFieldName, contents }
-
-let example0 =
-      let Example = < Left : { foo : Natural } | Right : { bar : Bool } >
-
-      in    assert
-          :   tagInline "name" Example (Example.Left { foo = 2 })
-            ≡ { field = "name"
-              , nesting = Nesting.Inline
-              , contents = Example.Left { foo = 2 }
-              }
-
-in  tagInline
-#+END_SRC
-
-** COMMENT tagNested
-
-#+BEGIN_SRC dhall :tangle ./tagNested
-{- Prepare a union value for CONF- or YAML-encoding with the nested layout
--}
-let Nesting = ./Nesting
-
-let Tagged = ./Tagged
-
-let tagNested
-    : Text → Text → ∀(a : Type) → a → Tagged a
-    = λ(contentsFieldName : Text) →
-      λ(tagFieldName : Text) →
-      λ(a : Type) →
-      λ(contents : a) →
-        { nesting = Nesting.Nested contentsFieldName
-        , field = tagFieldName
-        , contents
-        }
-
-let example0 =
-      let Example = < Left : { foo : Natural } | Right : { bar : Bool } >
-
-      in    assert
-          :   tagNested "value" "name" Example (Example.Left { foo = 2 })
-            ≡ { field = "name"
-              , nesting = Nesting.Nested "value"
-              , contents = Example.Left { foo = 2 }
-              }
-
-in  tagNested
 #+END_SRC
 
 * Types
@@ -951,7 +745,7 @@ in  CONF.render (CONF.array ([] : List CONF/Type))
 -}
 let CONF = ../Type
 
-let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/map
+let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/map
 
 let array
     : List CONF → CONF
@@ -1204,7 +998,7 @@ in  CONF.render
 -}
 let CONF = ../Type
 
-let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/master/Prelude/List/map
+let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/map
 
 let object
     : List { mapKey : Text, mapValue : CONF } → CONF
