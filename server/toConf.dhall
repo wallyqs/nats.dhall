@@ -10,75 +10,57 @@ let List/map =
 let Natural/enumerate =
       https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Natural/enumerate
 
+let Config = ./config.dhall
+let ClusterConfig = ./config/cluster.dhall
+let LoggingConfig = ./config/logging.dhall
+
 let NATS/Cluster = ./cluster.dhall
 
 let NATS/Conf = ../conf/package.dhall
 
 let toConf =
-    {- toConf takes a NATS/Cluster and generates the NATS Server configuration
-       that can be stored in ConfigMap.
+    {- toConf takes a NATS Server Config and generates the NATS/Conf type object
+       that can be rendered
     -}
-        λ(nats : NATS/Cluster.Type)
-      → let name = nats.name
-        let namespace = nats.name
-        let client = {
-          , port = Natural/toInteger nats.clientPort
-        }
-        let monitoring = {
-          , port = Natural/toInteger nats.monitoringPort
-        }
-        
-        let serverConf = toMap {
-          , port = NATS/Conf.integer client.port
-          , http = NATS/Conf.integer monitoring.port
-          , server_name = NATS/Conf.envValue "$POD_NAME"
+        λ(nats : Config.Type)
+      → let port = Natural/toInteger nats.port
+
+        -- Initialize empty config
+        let empty = [ ] : List { mapKey : Text, mapValue : NATS/Conf.Type }
+
+        -- Add the port, work with records that can be merged
+        let clientConf = toMap {
+          port = NATS/Conf.integer port
         }
 
-        let cluster = {
-          , port = Natural/toInteger nats.clusterPort
-          , host = "0.0.0.0"
-        }
+        -- merge is like a 'match' pattern matching
+        let clusterConf = merge 
+        {
+          , Some = \(cluster : ClusterConfig.Type) -> (toMap {
+            , cluster = NATS/Conf.object (toMap { 
+                , port = NATS/Conf.integer (Natural/toInteger cluster.port)
+              })
+            })
+          , None = empty
+        } nats.cluster
 
-        -- Generate list of integers
-        let routes = if Natural/equal nats.size 1
-            then [ ] : List NATS/Conf.Type
-            else
-              -- Generate a couple of lists then map them together
-              let servers = Natural/enumerate nats.size
-              let apply : Natural -> NATS/Conf.Type =
-                  λ(i : Natural)
-                  -> let n = Natural/show i
-                     in NATS/Conf.string "nats://${name}-${n}.${name}.${namespace}.svc:${Natural/show nats.clusterPort}"
+        let loggingConf = merge 
+        {
+          , Some = \(logging : LoggingConfig.Type) -> (toMap {
+              , debug = NATS/Conf.bool logging.debug
+              , trace = NATS/Conf.bool logging.trace
+            })
+          , None = empty
+        } nats.logging
 
-              let entries = List/map Natural NATS/Conf.Type apply servers
-              -- in [
-              --      NATS/Conf.string "nats://${name}-0.${name}.${namespace}.svc:${Natural/show nats.clusterPort}",
-              --      NATS/Conf.string "nats://${name}-1.${name}.${namespace}.svc:${Natural/show nats.clusterPort}",
-              --      NATS/Conf.string "nats://${name}-2.${name}.${namespace}.svc:${Natural/show nats.clusterPort}"
-              -- ]
-              in entries
-
-        -- Merge in the routes
-        let cluster = cluster ∧ { routes = routes }
-
-        let clusterConf = if Natural/equal nats.size 1
-        -- Note: Empty list requires type annotation
-        then [ ] : List { mapKey : Text, mapValue : NATS/Conf.Type }
-        else [
-          , { mapKey = "cluster", mapValue = NATS/Conf.object [
-               , { mapKey = "port", mapValue = NATS/Conf.integer cluster.port }
-               , { mapKey = "routes", mapValue = NATS/Conf.array 
-                   [ NATS/Conf.array routes ] 
-                 }
-             ]
-          }
+        let conf = List/concat { mapKey : Text, mapValue : NATS/Conf.Type } [ 
+           clientConf, clusterConf, loggingConf
         ]
 
-        let merged = List/concat { mapKey : Text, mapValue : NATS/Conf.Type } [
-          serverConf, clusterConf
-        ]
+        -- This is not what we want
+        -- let result = NATS/Conf.object conf
+        -- in NATS/Conf.render result
 
-        let conf = NATS/Conf.object merged
-        in NATS/Conf.render conf
-
+        -- At the end return the list of 
+        in NATS/Conf.object conf
 in  toConf

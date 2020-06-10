@@ -23,12 +23,19 @@ export NATS_PRELUDE=$(pwd)/package.dhall
 
 ** NATS Package
 
+Include the types for the NATS Server and its Config format.
+
 #+BEGIN_SRC dhall :tangle package.dhall
 {
   , Server = ./server/package.dhall
-  , K8S = ./k8s/package.dhall
+  , Conf = ./conf/package.dhall
+--  , K8S = ./k8s/package.dhall
 }
 #+END_SRC
+
+** NATS.Conf
+
+Includes the =NATS.Conf= format types and =NATS.Conf/render=.
 
 ** NATS.Server
 
@@ -36,14 +43,214 @@ export NATS_PRELUDE=$(pwd)/package.dhall
 
 #+BEGIN_SRC dhall :tangle server/package.dhall
 {
-  , Cluster = ./cluster.dhall
   , toConf = ./toConf.dhall
+  , Config = ./config.dhall
+  , ClusterConfig = ./config/cluster.dhall
+  , LoggingConfig = ./config/logging.dhall
 }
 #+END_SRC
 
 *** Types
 
-**** Cluster
+**** TODO NATS.Server.Config
+
+#+BEGIN_SRC dhall :tangle server/config.dhall
+let ClusterConfig = ./config/cluster.dhall
+let LoggingConfig = ./config/logging.dhall
+
+let Config
+    : Type
+    = { 
+        , host : Text
+        , port : Natural
+        , cluster : Optional ClusterConfig.Type
+        , logging : Optional LoggingConfig.Type
+      }
+
+let default =
+      { 
+        , host = "0.0.0.0"
+        , port = 4222
+        , cluster = None ClusterConfig.Type
+        , logging = None LoggingConfig.Type
+      }
+
+in  { default = default, Type = Config }
+#+END_SRC
+
+**** TODO NATS.Server.LoggingConfig
+
+#+BEGIN_SRC dhall :tangle server/config/logging.dhall
+let LoggingConfig
+    : Type
+    = { 
+        , debug : Bool
+        , trace : Bool
+        , logtime : Optional Bool
+      }
+
+let default =
+      { , debug = False
+        , trace = False
+        , logtime = None Bool
+      }
+
+in { default = default, Type = LoggingConfig }
+#+END_SRC
+
+**** TODO NATS.Server.ClusterConfig
+
+https://github.com/nats-io/nats-server/blob/c25e8d4bbe4ec231885ee2778a6945c7f4d945bb/server/opts.go#L959
+
+#+BEGIN_SRC dhall :tangle server/config/cluster.dhall
+let ClusterConfig
+    : Type
+    = { 
+        , host : Text
+        , port : Natural
+        , routes : List Text
+        , clusterAdvertise : Text
+        , noAdvertise : Bool
+      }
+
+let default =
+      { , host = "0.0.0.0"
+        , port = 6222
+        , routes = [] : List Text
+        , clusterAdvertise = ""
+        , noAdvertise = False
+      }
+
+in { default = default, Type = ClusterConfig }
+#+END_SRC
+
+**** TODO NATS.Server.TLSConfig
+
+https://github.com/nats-io/nats-server/blob/master/server/opts.go#L2876
+
+#+BEGIN_SRC dhall :tangle server/config/tlsConfig.dhall
+#+END_SRC
+
+**** TODO NATS.Server.AuthorizationConfig
+
+https://github.com/nats-io/nats-server/blob/master/server/opts.go#L2448
+
+#+BEGIN_SRC dhall :tangle server/config/authorization.dhall
+#+END_SRC
+
+
+****** TODO NATS.Server.UserConfig
+****** TODO NATS.Server.PermissionsConfig
+
+#+BEGIN_SRC dhall :tangle server/config/permissions.dhall
+#+END_SRC
+
+**** TODO NATS.Server.AccountsConfig
+
+https://github.com/nats-io/nats-server/blob/master/server/opts.go#L1731
+
+****** TODO NATS.Server.ServiceImportConfig || NATS.Server.StreamImportConfig
+
+https://github.com/nats-io/nats-server/blob/c25e8d4bbe4ec231885ee2778a6945c7f4d945bb/server/opts.go#L2013
+
+****** TODO NATS.Server.ServiceExportConfig || NATS.Server.StreamExportConfig
+**** TODO NATS.Server.WebsocketConfig
+
+https://github.com/nats-io/nats-server/blob/master/server/opts.go#L2981
+
+#+BEGIN_SRC dhall :tangle server/config/websocket.dhall
+#+END_SRC
+
+**** TODO NATS.Server.GatewayConfig
+
+https://github.com/nats-io/nats-server/blob/master/server/opts.go#L1098
+
+****** TODO NATS.Server.RemoteGatewayConfig
+**** TODO NATS.Server.LeafnodeConfig
+
+https://github.com/nats-io/nats-server/blob/master/server/opts.go#L1300
+
+****** TODO NATS.Server.RemoteLeafnodeConfig
+**** TODO NATS.Server.JetstreamConfig
+
+https://github.com/nats-io/nats-server/blob/c25e8d4bbe4ec231885ee2778a6945c7f4d945bb/server/opts.go#L1250
+
+*** Function
+
+**** toConf
+
+#+BEGIN_SRC dhall :tangle server/toConf.dhall 
+let Natural/equal =
+      https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Natural/equal
+
+let List/concat =
+      https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/concat
+
+let List/map =
+      https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/map
+
+let Natural/enumerate =
+      https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Natural/enumerate
+
+let Config = ./config.dhall
+let ClusterConfig = ./config/cluster.dhall
+let LoggingConfig = ./config/logging.dhall
+
+let NATS/Cluster = ./cluster.dhall
+
+let NATS/Conf = ../conf/package.dhall
+
+let toConf =
+    {- toConf takes a NATS Server Config and generates the NATS/Conf type object
+       that can be rendered
+    -}
+        λ(nats : Config.Type)
+      → let port = Natural/toInteger nats.port
+
+        -- Initialize empty config
+        let empty = [ ] : List { mapKey : Text, mapValue : NATS/Conf.Type }
+
+        -- Add the port, work with records that can be merged
+        let clientConf = toMap {
+          port = NATS/Conf.integer port
+        }
+
+        -- merge is like a 'match' pattern matching
+        let clusterConf = merge 
+        {
+          , Some = \(cluster : ClusterConfig.Type) -> (toMap {
+            , cluster = NATS/Conf.object (toMap { 
+                , port = NATS/Conf.integer (Natural/toInteger cluster.port)
+              })
+            })
+          , None = empty
+        } nats.cluster
+
+        let loggingConf = merge 
+        {
+          , Some = \(logging : LoggingConfig.Type) -> (toMap {
+              , debug = NATS/Conf.bool logging.debug
+              , trace = NATS/Conf.bool logging.trace
+            })
+          , None = empty
+        } nats.logging
+
+        let conf = List/concat { mapKey : Text, mapValue : NATS/Conf.Type } [ 
+           clientConf, clusterConf, loggingConf
+        ]
+
+        -- This is not what we want
+        -- let result = NATS/Conf.object conf
+        -- in NATS/Conf.render result
+
+        -- At the end return the list of 
+        in NATS/Conf.object conf
+in  toConf
+#+END_SRC
+
+
+** COMMENT Prev: =NATS.Server.Cluster= and =toConf=
+*** COMMENT Cluster
 
 #+BEGIN_SRC dhall :tangle server/cluster.dhall
 let Cluster
@@ -76,9 +283,7 @@ let defaultCluster =
 in  { default = defaultCluster, Type = Cluster }
 #+END_SRC
 
-*** Functions
-
-**** toConf
+*** COMMENT toConf
 
 #+BEGIN_SRC dhall :tangle server/toConf.dhall 
 let Natural/equal =
@@ -167,7 +372,7 @@ let toConf =
 in  toConf
 #+END_SRC
 
-** NATS.K8S
+** COMMENT NATS.K8S
 
 *** Package
 
@@ -344,5 +549,6 @@ let toList =
 
 in  toList
 #+END_SRC
+
 
 
