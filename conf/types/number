@@ -1,0 +1,21 @@
+{- Create a CONF number from a Dhall `Double`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.number 42.0)
+= "42.0"
+
+let CONF = ./package.dhall
+in  CONF.render (CONF.number -1.5e-10)
+= "-1.5e-10"
+```
+-}
+let CONF = ../Type
+
+let double = ./double
+
+let number
+    : Double → CONF
+    = double
+
+in  number

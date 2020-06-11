@@ -1,32 +1,68 @@
 let Natural/equal =
-      https://raw.githubusercontent.com/dhall-lang/dhall-lang/v15.0.0/Prelude/Natural/equal
+      https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Natural/equal
 
-let NATS/Cluster = ./cluster/type.dhall
+let List/concat =
+      https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/concat
+
+let List/map =
+      https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/map
+
+let Natural/enumerate =
+      https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Natural/enumerate
+
+let Config = ./config.dhall
+let ClusterConfig = ./config/cluster.dhall
+let LoggingConfig = ./config/logging.dhall
+
+let NATS/Cluster = ./cluster.dhall
+
+let NATS/Conf = ../conf/package.dhall
 
 let toConf =
-    {- toConf takes a NATS cluster and generates a configuration map.
-    TODO: Make a server conf package to represent in types.
+    {- toConf takes a NATS Server Config and generates the NATS/Conf type object
+       that can be rendered
     -}
-        λ(nats : NATS/Cluster)
-      → let clusterPort = Natural/show nats.clusterPort
+        λ(nats : Config.Type)
+      → let port = Natural/toInteger nats.port
 
-        let routes =
-                    if Natural/equal nats.size 1
+        -- Initialize empty config
+        let empty = [ ] : List { mapKey : Text, mapValue : NATS/Conf.Type }
 
-              then  ""
+        -- Add the port, work with records that can be merged
+        let clientConf = toMap {
+          port = NATS/Conf.integer port
+        }
 
-              else  "nats://${nats.name}.${nats.namespace}.svc:${clusterPort}"
+        -- CLUSTER
+        --
+        let clusterConf = merge 
+        {
+          , Some = \(cluster : ClusterConfig.Type) -> (toMap {
+            , cluster = NATS/Conf.object (toMap { 
+                , port = NATS/Conf.integer (Natural/toInteger cluster.port)
+              })
+            })
+          , None = empty
+        } nats.cluster
 
-        in  ''
-            port = ${Natural/show nats.clientPort}
-            http = ${Natural/show nats.monitoringPort}
+        -- LOGGING
+        -- NOTE: Ideally we should omit all the false ones from the output.
+        let loggingConf = merge 
+        {
+          , Some = \(logging : LoggingConfig.Type) -> (toMap {
+              , debug = NATS/Conf.bool logging.debug
+              , trace = NATS/Conf.bool logging.trace
+              , logtime = NATS/Conf.bool logging.logtime
+            })
+          , None = empty
+        } nats.logging
 
-            cluster {
-              port = ${Natural/show nats.clusterPort}
-              routes = [
-                ${routes}
-              ]
-            }
-            ''
+        let conf = List/concat { mapKey : Text, mapValue : NATS/Conf.Type } [ 
+           , clientConf
+           , clusterConf
+           , loggingConf
+        ]
 
+        -- Return the list of configured blocks as NATS/Conf types
+        in NATS/Conf.object conf
 in  toConf

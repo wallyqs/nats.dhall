@@ -1,0 +1,1184 @@
+# -*- mode: org; mode: auto-fill -*- 
+#+TODO:     ONIT HOLD PAUSED TODO | DONE CANCELED
+#+TITLE:    NATS Conf Package
+#+property: :header-args: :results output code :mkdirp true
+
+This package includes a renderer for [[https://github.com/nats-io/nats-server/tree/master/conf][NATS Configuration format]], based
+on the =dhall-lang= implementation of [[https://github.com/dhall-lang/dhall-lang/blob/master/Prelude/JSON/render][JSON.render]].
+
+* Package
+
+** package
+
+#+BEGIN_SRC dhall :tangle ./package.dhall
+{ render = ./render } ∧ ./core.dhall
+#+END_SRC
+
+** Format
+
+#+BEGIN_SRC dhall :tangle ./Format
+{- An internal type used by `./renderAs` to select the output format.
+
+   You should not need to use this type directly, simply use `./render`
+-}
+
+< CONF | YAML >
+
+#+END_SRC
+
+** Nesting
+
+#+BEGIN_SRC dhall :tangle ./Nesting
+{-
+Example:
+
+```
+let Example = < Left : { foo : Natural } | Right : { bar : Bool } >
+
+let Nesting = < Inline | Nested : Text >
+
+in  { field =
+        "name"
+    , nesting =
+        Nesting.Inline
+    , contents =
+        Example.Left { foo = 2 }
+    }
+```
+
+... generates this CONF:
+
+```
+{
+  "foo": 2,
+  "name": "Left"
+ }
+```
+
+-}
+let Nesting
+    : Type
+    = < Inline | Nested : Text >
+
+in  Nesting
+#+END_SRC
+
+** Tagged
+
+#+BEGIN_SRC dhall :tangle ./Tagged
+{-
+Example:
+
+```
+let map = ../List/map
+
+let Provisioner =
+      < shell :
+          { inline : List Text }
+      | file :
+          { source : Text, destination : Text }
+      >
+
+let Tagged = ./Tagged
+
+let Nesting = ./Nesting
+
+let wrap
+    : Provisioner → Tagged Provisioner
+    = λ(x : Provisioner) →
+        { field = "type", nesting = Nesting.Nested "params", contents = x }
+
+in  { provisioners =
+        map
+        Provisioner
+        (Tagged Provisioner)
+        wrap
+        [ Provisioner.shell { inline = [ "echo foo" ] }
+        , Provisioner.file
+          { source = "app.tar.gz", destination = "/tmp/app.tar.gz" }
+        ]
+    }
+```
+
+... produces this CONF:
+
+```
+{
+  "provisioners": [
+    {
+      "params": {
+        "inline": [
+          "echo foo"
+        ]
+      },
+      "type": "shell"
+    },
+    {
+      "params": {
+        "destination": "/tmp/app.tar.gz",
+        "source": "app.tar.gz"
+      },
+      "type": "file"
+    }
+  ]
+}
+```
+
+-}
+let Tagged
+    : Type → Type
+    = λ(a : Type) →
+        { field : Text
+        , nesting : ./Nesting
+        , contents : a
+        }
+
+in  Tagged
+#+END_SRC
+
+** Type
+
+#+BEGIN_SRC dhall :tangle ./Type
+{- Dhall encoding of an arbitrary CONF value
+
+   For example, the following CONF value:
+
+```
+[ { "foo": null, "bar": [ 1.0, true ] } ]
+```
+
+   ... corresponds to the following Dhall expression:
+
+```
+λ(CONF : Type) →
+λ ( conf
+  : { array : List CONF → CONF
+    , bool : Bool → CONF
+    , null : CONF
+    , double : Double → CONF
+    , integer : Integer → CONF
+    , object : List { mapKey : Text, mapValue : CONF } → CONF
+    , string : Text → CONF
+    }
+  ) →
+  conf.object
+    [ { mapKey = "foo", mapValue = conf.null }
+    , { mapKey = "bar"
+      , mapValue = conf.array [ conf.double 1.0, conf.bool True ]
+      }
+    ]
+```
+
+  You do not need to create these values directly, though.  You can use
+  the utilities exported by `./package.dhall` to create values of this type,
+  such as:
+
+```
+let CONF = ./package.dhall
+
+in  CONF.object
+      [ { mapKey = "foo", mapValue = CONF.null }
+      , { mapKey = "bar"
+        , mapValue = CONF.array [ CONF.double 1.0, CONF.bool True ]
+        }
+      ]
+```
+
+-}
+let CONF/Type
+    : Type
+    = ∀(CONF : Type) →
+      ∀ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        CONF
+
+in  CONF/Type
+#+END_SRC
+
+** core
+
+#+BEGIN_SRC dhall :tangle ./core.dhall
+{- A record of functions useful for constructing `CONF` values.
+
+   This is only a subset of what `package.dhall` exports. If you are
+   not writing a CONF prelude function, you should use the
+   `package.dhall` file instead.
+
+   It is used internally by `render`, and `omitNullFields`
+   instead of `package.dhall` to avoid import cycles.
+-}
+{ Type = ./Type
+, Tagged = ./Tagged
+, Nesting = ./Nesting
+, keyText = ./types/keyText
+, keyValue = ./types/keyValue
+, string = ./types/string
+, number = ./types/number
+, double = ./types/double
+, integer = ./types/integer
+, natural = ./types/natural
+, object = ./types/object
+, array = ./types/array
+, bool = ./types/bool
+, null = ./types/null
+, envValue = ./types/envValue
+, renderInteger = ./renderInteger.dhall
+}
+
+#+END_SRC
+
+* Functions
+
+** render
+
+#+BEGIN_SRC dhall :tangle ./render
+{- Render a `CONF` value as `Text`
+-}
+let CONF = ./core.dhall
+
+let renderAs = ./renderAs
+
+let Format = ./Format
+
+let render
+    : CONF.Type → Text
+    = renderAs Format.CONF
+
+let example0 =
+      let data =
+              assert
+            :   render
+                  ( CONF.array
+                      [ CONF.bool True
+                      , CONF.string "Hello"
+                      , CONF.object
+                          [ { mapKey = "foo", mapValue = CONF.null }
+                          , { mapKey = "bar", mapValue = CONF.double 1.0 }
+                          ]
+                      ]
+                  )
+              ≡ ''
+                [
+                  true,
+                  "Hello",
+                  {
+                    foo null,
+                    bar 1.0
+                  }
+                ]
+                ''
+
+      in  True
+
+in  render
+#+END_SRC
+
+** renderAs
+
+#+BEGIN_SRC dhall :tangle ./renderAs
+{- Render a `CONF` value as `Text` in NATS Configuration Format -}
+
+let CONF = ./core.dhall
+
+let Function/identity = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Function/identity
+
+let Text/concatMap = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Text/concatMap
+
+let List/take = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/take
+
+let List/drop = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/drop
+
+let List/null = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/null
+
+let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/map
+
+let List/concatMap = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/concatMap
+
+let Optional/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Optional/map
+
+let NonEmpty
+    : Type → Type
+    = λ(a : Type) → { head : a, tail : List a }
+
+let List/uncons
+    : ∀(a : Type) → List a → Optional (NonEmpty a)
+    = λ(a : Type) →
+      λ(ls : List a) →
+        Optional/map
+          a
+          (NonEmpty a)
+          (λ(head : a) → { head, tail = List/drop 1 a ls })
+          (List/head a ls)
+
+let NonEmpty/singleton
+    : ∀(a : Type) → a → NonEmpty a
+    = λ(a : Type) → λ(x : a) → { head = x, tail = [] : List a }
+
+let NonEmpty/toList
+    : ∀(a : Type) → NonEmpty a → List a
+    = λ(a : Type) → λ(nonEmpty : NonEmpty a) → [ nonEmpty.head ] # nonEmpty.tail
+
+let NonEmpty/concat
+    : ∀(a : Type) → NonEmpty (NonEmpty a) → NonEmpty a
+    = λ(a : Type) →
+      λ(lss : NonEmpty (NonEmpty a)) →
+        { head = lss.head.head
+        , tail =
+              lss.head.tail
+            # List/concatMap (NonEmpty a) a (NonEmpty/toList a) lss.tail
+        }
+
+let NonEmpty/map
+    : ∀(a : Type) → ∀(b : Type) → (a → b) → NonEmpty a → NonEmpty b
+    = λ(a : Type) →
+      λ(b : Type) →
+      λ(fn : a → b) →
+      λ(ls : NonEmpty a) →
+        { head = fn ls.head, tail = List/map a b fn ls.tail }
+
+let NonEmpty/mapHead
+    : ∀(a : Type) → (a → a) → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(fn : a → a) →
+      λ(ls : NonEmpty a) →
+        ls ⫽ { head = fn ls.head }
+
+let NonEmpty/mapTail
+    : ∀(a : Type) → (a → a) → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(fn : a → a) →
+      λ(ls : NonEmpty a) →
+        ls ⫽ { tail = List/map a a fn ls.tail }
+
+let List/splitAt
+    : Natural → ∀(a : Type) → List a → { head : List a, tail : List a }
+    = λ(index : Natural) →
+      λ(a : Type) →
+      λ(ls : List a) →
+        { head = List/take index a ls, tail = List/drop index a ls }
+
+let _testSplitAt0 =
+        assert
+      :   List/splitAt 0 Natural [ 1, 2, 3 ]
+        ≡ { head = [] : List Natural, tail = [ 1, 2, 3 ] }
+
+let _testSplitAt1 =
+        assert
+      : List/splitAt 1 Natural [ 1, 2, 3 ] ≡ { head = [ 1 ], tail = [ 2, 3 ] }
+
+let _testSplitAt3 =
+        assert
+      :   List/splitAt 3 Natural [ 1, 2, 3 ]
+        ≡ { head = [ 1, 2, 3 ], tail = [] : List Natural }
+
+let _testSplitAt =
+        assert
+      :   List/splitAt 1 Natural ([] : List Natural)
+        ≡ { head = [] : List Natural, tail = [] : List Natural }
+
+let List/splitLast =
+      λ(a : Type) →
+      λ(ls : List a) →
+        List/splitAt (Natural/subtract 1 (List/length a ls)) a ls
+
+let NonEmpty/prepend
+    : ∀(a : Type) → a → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(prefix : a) →
+      λ(ls : NonEmpty a) →
+        { head = prefix, tail = NonEmpty/toList a ls }
+
+let NonEmpty/append
+    : ∀(a : Type) → a → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(suffix : a) →
+      λ(ls : NonEmpty a) →
+        { head = ls.head, tail = ls.tail # [ suffix ] }
+
+let NonEmpty/mapLast
+    : ∀(a : Type) → (a → a) → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(fn : a → a) →
+      λ(ls : NonEmpty a) →
+        if    List/null a ls.tail
+        then  { head = fn ls.head, tail = [] : List a }
+        else  let split = List/splitLast a ls.tail
+
+              in  { head = ls.head
+                  , tail = split.head # List/map a a fn split.tail
+                  }
+
+let NonEmpty/mapLeading
+    : ∀(a : Type) → (a → a) → NonEmpty a → NonEmpty a
+    = λ(a : Type) →
+      λ(fn : a → a) →
+      λ(ls : NonEmpty a) →
+        if    List/null a ls.tail
+        then  ls
+        else  let split = List/splitLast a ls.tail
+
+              in  { head = fn ls.head
+                  , tail = List/map a a fn split.head # split.tail
+                  }
+
+let Lines
+    : Type
+    = NonEmpty Text
+
+let Block
+    : Type
+    = < Simple : Text | Complex : Lines >
+
+let Block/toLines
+    : Block → Lines
+    = λ(block : Block) →
+        merge
+          { Simple = NonEmpty/singleton Text
+          , Complex = Function/identity Lines
+          }
+          block
+
+let manyBlocks
+    : ∀(a : Type) → Text → (NonEmpty a → Lines) → List a → Block
+    = λ(a : Type) →
+      λ(ifEmpty : Text) →
+      λ(render : NonEmpty a → Lines) →
+      λ(inputs : List a) →
+        merge
+          { Some = λ(inputs : NonEmpty a) → Block.Complex (render inputs)
+          , None = Block.Simple ifEmpty
+          }
+          (List/uncons a inputs)
+
+let blockToText
+    : Block → Text
+    = λ(block : Block) →
+        Text/concatMap
+          Text
+          (λ(line : Text) → line ++ "\n")
+          (NonEmpty/toList Text (Block/toLines block))
+
+let addPrefix = λ(prefix : Text) → λ(line : Text) → prefix ++ line
+
+let addIndent = addPrefix "  "
+
+let indentTail = NonEmpty/mapTail Text addIndent
+
+let Format = ./Format
+
+let ObjectField = { mapKey : Text, mapValue : Block }
+
+let renderCONFStruct =
+      λ(prefix : Text) →
+      λ(suffix : Text) →
+      λ(blocks : NonEmpty Lines) →
+        let indent = NonEmpty/map Text Text addIndent
+
+        let appendComma
+            : Lines → Lines
+            = NonEmpty/mapLast Text (λ(line : Text) → line ++ ",")
+
+        let blocks = NonEmpty/mapLeading Lines appendComma blocks
+
+        let block = NonEmpty/concat Text blocks
+
+        in  if    List/null Text block.tail
+            then  NonEmpty/singleton Text "${prefix} ${block.head} ${suffix}"
+            else  NonEmpty/prepend
+                    Text
+                    prefix
+                    (NonEmpty/append Text suffix (indent block))
+
+let renderObject =
+      λ(format : Format) →
+      λ(fields : NonEmpty ObjectField) →
+        -- let keystr = λ(field : ObjectField) → "${Text/show field.mapKey}:"
+        let keystr = λ(field : ObjectField) → "${field.mapKey}"
+
+        let prefixKeyOnFirst =
+              λ(field : ObjectField) →
+                NonEmpty/mapHead
+                  Text
+                  (addPrefix "${keystr field} ")
+                  (Block/toLines field.mapValue)
+
+        let prependKeyLine =
+              λ(field : ObjectField) →
+                NonEmpty/prepend
+                  Text
+                  (keystr field)
+                  (Block/toLines field.mapValue)
+
+        let renderYAMLField =
+              λ(field : ObjectField) →
+                merge
+                  { Simple =
+                      λ(line : Text) →
+                        NonEmpty/singleton Text "${keystr field} ${line}"
+                  , Complex = λ(_ : Lines) → indentTail (prependKeyLine field)
+                  }
+                  field.mapValue
+
+        in  merge
+              { CONF =
+                  renderCONFStruct
+                    "{"
+                    "}"
+                    (NonEmpty/map ObjectField Lines prefixKeyOnFirst fields)
+              , YAML =
+                  NonEmpty/concat
+                    Text
+                    (NonEmpty/map ObjectField Lines prefixKeyOnFirst fields)
+              }
+              format
+
+let renderArray =
+      λ(format : Format) →
+      λ(fields : NonEmpty Block) →
+        merge
+          { CONF =
+              renderCONFStruct
+                "["
+                "]"
+                (NonEmpty/map Block Lines Block/toLines fields)
+          , YAML =
+              NonEmpty/concat
+                Text
+                (NonEmpty/map Block Lines Block/toLines fields)
+          }
+          format
+
+let renderAs
+    : Format → CONF.Type → Text
+    = λ(format : Format) →
+      λ(conf : CONF.Type) →
+        blockToText
+          ( conf
+              Block
+              { string = λ(x : Text) → Block.Simple (Text/show x)
+              , double = λ(x : Double) → Block.Simple (Double/show x)
+              , integer = λ(x : Integer) → Block.Simple (CONF.renderInteger x)
+              , object = manyBlocks ObjectField "{}" (renderObject format)
+              , array = manyBlocks Block "[]" (renderArray format)
+              , bool =
+                  λ(x : Bool) → Block.Simple (if x then "true" else "false")
+              , null = Block.Simple "null"
+              , envValue = λ(x : Text) → Block.Simple x
+              -- , envValue = λ(x : Text) → Block.Simple (Text/show x)
+              }
+          )
+
+-- let example0 =
+--       let data =
+--             CONF.array
+--               [ CONF.bool True
+--               , CONF.string "Hello"
+--               , CONF.object
+--                   [ { mapKey = "foo", mapValue = CONF.null }
+--                   , { mapKey = "bar", mapValue = CONF.double 1.0 }
+--                   ]
+--               ]
+
+--       let yaml =
+--               assert
+--             :   renderAs Format.YAML data
+--               ≡ ''
+--                 - true
+--                 - "Hello"
+--                 - "foo": null
+--                   "bar": 1.0
+--                 ''
+
+--       let conf =
+--               assert
+--             :   renderAs Format.CONF data
+--               ≡ ''
+--                 [
+--                   true,
+--                   "Hello",
+--                   {
+--                     "foo": null,
+--                     "bar": 1.0
+--                   }
+--                 ]
+--                 ''
+
+--       in  True
+
+-- let example1 =
+--       let data =
+--             CONF.object
+--               [ { mapKey = "zero", mapValue = CONF.array ([] : List CONF.Type) }
+--               , { mapKey = "one", mapValue = CONF.array [ CONF.string "a" ] }
+--               , { mapKey = "two"
+--                 , mapValue = CONF.array [ CONF.string "a", CONF.string "b" ]
+--                 }
+--               ]
+
+--       let yaml =
+--               assert
+--             :   renderAs Format.YAML data
+--               ≡ ''
+--                 "zero": []
+--                 "one":
+--                   - "a"
+--                 "two":
+--                   - "a"
+--                   - "b"
+--                 ''
+
+--       let conf =
+--               assert
+--             :   renderAs Format.CONF data
+--               ≡ ''
+--                 {
+--                   "zero": [],
+--                   "one": [ "a" ],
+--                   "two": [
+--                     "a",
+--                     "b"
+--                   ]
+--                 }
+--                 ''
+
+--       in  True
+
+-- let example2 =
+--       let data =
+--             CONF.object
+--               [ { mapKey = "zero"
+--                 , mapValue =
+--                     CONF.object
+--                       (toMap {=} : List { mapKey : Text, mapValue : CONF.Type })
+--                 }
+--               , { mapKey = "one"
+--                 , mapValue = CONF.object (toMap { a = CONF.null })
+--                 }
+--               , { mapKey = "two"
+--                 , mapValue =
+--                     CONF.object (toMap { a = CONF.null, b = CONF.null })
+--                 }
+--               ]
+
+--       let yaml =
+--               assert
+--             :   renderAs Format.YAML data
+--               ≡ ''
+--                 "zero": {}
+--                 "one":
+--                   "a": null
+--                 "two":
+--                   "a": null
+--                   "b": null
+--                 ''
+
+--       let conf =
+--               assert
+--             :   renderAs Format.CONF data
+--               ≡ ''
+--                 {
+--                   "zero": {},
+--                   "one": { "a": null },
+--                   "two": {
+--                     "a": null,
+--                     "b": null
+--                   }
+--                 }
+--                 ''
+
+--       in  True
+
+in  renderAs
+#+END_SRC
+
+** renderInteger
+
+#+BEGIN_SRC dhall :tangle ./renderInteger.dhall
+{- Render an `Integer` value as a `CONF number`, according to the CONF
+   standard, in which a number may not start with a plus sign (`+`).
+-}
+
+let Integer/nonNegative = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/Integer/nonNegative
+
+let renderInteger
+    : Integer → Text
+    = λ(integer : Integer) →
+        if    Integer/nonNegative integer
+        then  Natural/show (Integer/clamp integer)
+        else  Integer/show integer
+
+let positive = assert : renderInteger +1 ≡ "1"
+
+let zero = assert : renderInteger +0 ≡ "0"
+
+let negative = assert : renderInteger -1 ≡ "-1"
+
+in  renderInteger
+#+END_SRC
+
+* Types
+
+** array
+
+#+BEGIN_SRC dhall :tangle ./types/array
+{- Create a CONF array from a `List` of CONF values
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.array [ CONF.double 1.0, CONF.bool True ])
+= "[ 1.0, true ]"
+
+let CONF/Type = ./Type
+let CONF = ./package.dhall
+in  CONF.render (CONF.array ([] : List CONF/Type))
+= "[ ]"
+```
+-}
+let CONF = ../Type
+
+let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/map
+
+let array
+    : List CONF → CONF
+    = λ(x : List CONF) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.array (List/map CONF@1 CONF (λ(j : CONF@1) → j CONF conf) x)
+
+in  array
+#+END_SRC
+
+** bool
+
+#+BEGIN_SRC dhall :tangle ./types/bool
+{- Create a CONF bool from a Dhall `Bool`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.bool True)
+= "true"
+
+let CONF = ./package.dhall
+in  CONF.render (CONF.bool False)
+= "false"
+```
+-}
+let CONF = ../Type
+
+let bool
+    : Bool → CONF
+    = λ(x : Bool) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.bool x
+
+in  bool
+#+END_SRC
+
+** integer
+
+#+BEGIN_SRC dhall :tangle ./types/integer
+{- Create a CONF number from a Dhall `Integer`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.integer -1)
+= "-1"
+
+let CONF = ./package.dhall
+in  CONF.render (CONF.integer +2)
+= "+2"
+```
+-}
+let CONF = ../Type
+
+let integer
+    : Integer → CONF
+    = λ(x : Integer) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.integer x
+
+in  integer
+#+END_SRC
+
+** keyText
+
+#+BEGIN_SRC dhall :tangle ./types/keyText
+{-
+Builds a key-value record such that a `List` of them will be converted to a
+homogeneous record by dhall-to-json and dhall-to-yaml.
+
+Both key and value are fixed to `Text`.
+
+Take a look at `./keyValue` for a polymorphic version.
+-}
+let keyText =
+      λ(key : Text) → λ(value : Text) → { mapKey = key, mapValue = value }
+
+let example0 =
+      assert : keyText "foo" "bar" ≡ { mapKey = "foo", mapValue = "bar" }
+
+in  keyText
+#+END_SRC
+
+** keyValue
+
+#+BEGIN_SRC dhall :tangle ./types/keyValue
+{-
+Builds a key-value record such that a List of them will be converted to a
+homogeneous record by dhall-to-json and dhall-to-yaml.
+-}
+let keyValue =
+      λ(v : Type) →
+      λ(key : Text) →
+      λ(value : v) →
+        { mapKey = key, mapValue = value }
+
+let example0 =
+      assert : keyValue Natural "foo" 2 ≡ { mapKey = "foo", mapValue = 2 }
+
+let example1 =
+      assert : keyValue Text "bar" "baz" ≡ { mapKey = "bar", mapValue = "baz" }
+
+in  keyValue
+#+END_SRC
+
+** natural
+
+#+BEGIN_SRC dhall :tangle ./types/natural
+{- Create a CONF number from a Dhall `Natural`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.natural 42)
+= "42"
+```
+-}
+let CONF = ../Type
+
+let natural
+    : Natural → CONF
+    = λ(x : Natural) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.integer (Natural/toInteger x)
+
+in  natural
+#+END_SRC
+
+** null
+
+#+BEGIN_SRC dhall :tangle ./types/null
+{- Create a CONF null
+
+```
+let CONF = ./package.dhall
+in  CONF.render CONF.null
+= "null"
+```
+-}
+let CONF = ../Type
+
+let null
+    : CONF
+    = λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.null
+
+in  null
+#+END_SRC
+
+** number
+
+#+BEGIN_SRC dhall :tangle ./types/number
+{- Create a CONF number from a Dhall `Double`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.number 42.0)
+= "42.0"
+
+let CONF = ./package.dhall
+in  CONF.render (CONF.number -1.5e-10)
+= "-1.5e-10"
+```
+-}
+let CONF = ../Type
+
+let double = ./double
+
+let number
+    : Double → CONF
+    = double
+
+in  number
+#+END_SRC
+
+** object
+
+#+BEGIN_SRC dhall :tangle ./types/object
+{- Create a CONF object from a Dhall `Map`
+
+```
+let CONF = ./package.dhall
+in  CONF.render
+    ( CONF.object
+      [ { mapKey = "foo", mapValue = CONF.double 1.0 }
+      , { mapKey = "bar", mapValue = CONF.bool True  }
+      ]
+    )
+= "{ \"foo\": 1.0, \"bar\": true }"
+
+let CONF/Type = ./Type
+let CONF = ./package.dhall
+in  CONF.render
+    (CONF.object ([] : List { mapKey : Text, mapValue : CONF/Type }))
+= "{ }"
+```
+-}
+let CONF = ../Type
+
+let List/map = https://raw.githubusercontent.com/dhall-lang/dhall-lang/v16.0.0/Prelude/List/map
+
+let object
+    : List { mapKey : Text, mapValue : CONF } → CONF
+    = λ(x : List { mapKey : Text, mapValue : CONF }) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.object
+          ( List/map
+              { mapKey : Text, mapValue : CONF@1 }
+              { mapKey : Text, mapValue : CONF }
+              ( λ(kv : { mapKey : Text, mapValue : CONF@1 }) →
+                  { mapKey = kv.mapKey, mapValue = kv.mapValue CONF conf }
+              )
+              x
+          )
+
+in  object
+#+END_SRC
+
+** string
+
+#+BEGIN_SRC dhall :tangle ./types/string
+{- Create a CONF string from Dhall `Text`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.string "ABC $ \" 🙂")
+= "\"ABC \\u0024 \\\" 🙂\""
+
+let CONF = ./package.dhall
+in  CONF.render (CONF.string "")
+= "\"\""
+```
+-}
+let CONF = ../Type
+
+let string
+    : Text → CONF
+    = λ(x : Text) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.string x
+
+in  string
+#+END_SRC
+
+** double
+
+#+BEGIN_SRC dhall :tangle ./types/double
+{- Create a CONF number from a Dhall `Double`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.double 42.0)
+= "42.0"
+
+let CONF = ./package.dhall
+in  CONF.render (CONF.double -1.5e-10)
+= "-1.5e-10"
+```
+-}
+let CONF = ../Type
+
+let double
+    : Double → CONF
+    = λ(x : Double) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.double x
+
+in  double
+#+END_SRC
+
+** envValue
+
+#+BEGIN_SRC dhall :tangle ./types/envValue
+{- Create a CONF string from Dhall `Text`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.string "ABC $ \" 🙂")
+= "\"ABC \\u0024 \\\" 🙂\""
+
+let CONF = ./package.dhall
+in  CONF.render (CONF.string "")
+= "\"\""
+```
+-}
+let CONF = ../Type
+
+let envValue
+    : Text → CONF
+    = λ(x : Text) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.envValue x
+
+in  envValue
+
+#+END_SRC
+
+
+
+
+
+
+
+
+
+
+* License
+
+Original license of Dhall's JSON.render:
+
+#+BEGIN_SRC text :tangle LICENSE
+Copyright (c) 2018 Gabriel Gonzalez
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation
+and/or other materials provided with the distribution.
+
+3. Neither the name of the author nor the names of its contributors may be
+used to endorse or promote products derived from this software without
+specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#+END_SRC

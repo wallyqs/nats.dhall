@@ -1,4 +1,4 @@
-let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
+let NATS = env:NATS_PRELUDE
 
 let cluster =
       NATS.Server.Cluster::{
@@ -8,4 +8,4 @@ let cluster =
       , size = 3
       }
 
-in NATS.Server.toConf cluster
+in  NATS.Server.toConf cluster

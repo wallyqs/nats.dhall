@@ -1,0 +1,27 @@
+{- Create a CONF null
+
+```
+let CONF = ./package.dhall
+in  CONF.render CONF.null
+= "null"
+```
+-}
+let CONF = ../Type
+
+let null
+    : CONF
+    = λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.null
+
+in  null

@@ -1,0 +1,32 @@
+{- Create a CONF number from a Dhall `Double`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.double 42.0)
+= "42.0"
+
+let CONF = ./package.dhall
+in  CONF.render (CONF.double -1.5e-10)
+= "-1.5e-10"
+```
+-}
+let CONF = ../Type
+
+let double
+    : Double → CONF
+    = λ(x : Double) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.double x
+
+in  double

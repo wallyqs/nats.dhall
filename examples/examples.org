@@ -31,6 +31,7 @@ items:
       labels:
         app: my-nats
       name: my-nats
+      namespace: default
     spec:
       replicas: 3
       selector:
@@ -42,6 +43,7 @@ items:
           labels:
             app: my-nats
           name: my-nats
+          namespace: default
         spec:
           containers:
             - command:
@@ -63,30 +65,27 @@ items:
   - apiVersion: v1
     data:
       nats.conf: |
-        port = 4222
-        http = 8222
-        
-        cluster {
-          port = 6222
-        
-          routes = [
-        
-            nats://my-nats-0.my-nats.default.svc:6222
-            nats://my-nats-1.my-nats.default.svc:6222
-            nats://my-nats-2.my-nats.default.svc:6222
-          ]
+        {
+          port 4222,
+          http 8222,
+          cluster {
+            port 6222,
+            routes [ "nats://my-nats.my-nats.svc:6222" ]
+          }
         }
     kind: ConfigMap
     metadata:
       labels:
         app: my-nats
       name: my-nats-config
+      namespace: default
   - apiVersion: v1
     kind: Service
     metadata:
       labels:
         app: my-nats
       name: my-nats
+      namespace: default
     spec:
       clusterIP: None
       ports:
@@ -117,15 +116,12 @@ in NATS.Server.toConf cluster
 #+RESULTS:
 #+BEGIN_SRC dhall
 |
-port = 4222
-http = 8222
-
-cluster {
-  port = 6222
-  routes = [
-    nats://another-nats.nats-io.svc:6222
-  ]
+{
+  port 4222,
+  http 8222,
+  cluster {
+    port 6222,
+    routes [ "nats://another-nats.another-nats.svc:6222" ]
+  }
 }
 #+END_SRC
-
-

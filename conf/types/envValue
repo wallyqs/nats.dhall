@@ -1,0 +1,32 @@
+{- Create a CONF string from Dhall `Text`
+
+```
+let CONF = ./package.dhall
+in  CONF.render (CONF.string "ABC $ \" 🙂")
+= "\"ABC \\u0024 \\\" 🙂\""
+
+let CONF = ./package.dhall
+in  CONF.render (CONF.string "")
+= "\"\""
+```
+-}
+let CONF = ../Type
+
+let envValue
+    : Text → CONF
+    = λ(x : Text) →
+      λ(CONF : Type) →
+      λ ( conf
+        : { array : List CONF → CONF
+          , bool : Bool → CONF
+          , double : Double → CONF
+          , integer : Integer → CONF
+          , null : CONF
+          , object : List { mapKey : Text, mapValue : CONF } → CONF
+          , string : Text → CONF
+          , envValue : Text → CONF
+          }
+        ) →
+        conf.envValue x
+
+in  envValue

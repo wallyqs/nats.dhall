@@ -1,0 +1,1 @@
+{ render = ./render } ∧ ./core.dhall
