@@ -33,7 +33,8 @@ let toConf =
           port = NATS/Conf.integer port
         }
 
-        -- merge is like a 'match' pattern matching
+        -- CLUSTER
+        --
         let clusterConf = merge 
         {
           , Some = \(cluster : ClusterConfig.Type) -> (toMap {
@@ -44,23 +45,24 @@ let toConf =
           , None = empty
         } nats.cluster
 
+        -- LOGGING
+        -- NOTE: Ideally we should omit all the false ones from the output.
         let loggingConf = merge 
         {
           , Some = \(logging : LoggingConfig.Type) -> (toMap {
               , debug = NATS/Conf.bool logging.debug
               , trace = NATS/Conf.bool logging.trace
+              , logtime = NATS/Conf.bool logging.logtime
             })
           , None = empty
         } nats.logging
 
         let conf = List/concat { mapKey : Text, mapValue : NATS/Conf.Type } [ 
-           clientConf, clusterConf, loggingConf
+           , clientConf
+           , clusterConf
+           , loggingConf
         ]
 
-        -- This is not what we want
-        -- let result = NATS/Conf.object conf
-        -- in NATS/Conf.render result
-
-        -- At the end return the list of 
+        -- Return the list of configured blocks as NATS/Conf types
         in NATS/Conf.object conf
 in  toConf

@@ -8,9 +8,10 @@ let serverConfig =  NATS.Server.Config::{
 
      -- , logging = Some NATS.Server.LoggingConfig::{=}
      , logging = Some NATS.Server.LoggingConfig::{
-       , debug = True
-       , trace = True
-       , logtime = Some True
+       -- NOTE: If values are false do not even include them in the NATS/Conf
+       , debug = False
+       , trace = False
+       , logtime = False
      }
 
      -- Enable clustering with the defaults
@@ -27,4 +28,5 @@ let serverConfig = serverConfig // { port = 9090 }
 let conf = NATS.Server.toConf serverConfig
 
 -- Renders the result
+
 in NATS.Conf.render conf

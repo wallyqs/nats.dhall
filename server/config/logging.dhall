@@ -3,13 +3,13 @@ let LoggingConfig
     = { 
         , debug : Bool
         , trace : Bool
-        , logtime : Optional Bool
+        , logtime : Bool
       }
 
 let default =
       { , debug = False
         , trace = False
-        , logtime = None Bool
+        , logtime = False
       }
 
 in { default = default, Type = LoggingConfig }

@@ -1,14 +1,15 @@
 let kubernetes =
       https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/v4.0.0/1.17/package.dhall sha256:d9eac5668d5ed9cb3364c0a39721d4694e4247dad16d8a82827e4619ee1d6188
 
-let NATS/toConf = ../server/toConf.dhall
-
-let NATS/Cluster = ../server/cluster.dhall
+-- TODO: Just import server and conf packages?
+let NATS/Server/toConf = ../server/toConf.dhall
+let NATS/Server/Config = ../server/config.dhall
+let NATS/Conf/render = ../conf/render
 
 let NATS/K8S/Cluster = ./cluster.dhall
 
 let toK8S =
-        λ(nats : NATS/Cluster.Type)
+        λ(nats : NATS/K8S/Cluster.Type)
       → let labels = Some (toMap { app = nats.name })
 
         let metadata =
@@ -22,18 +23,27 @@ let toK8S =
               }
 
         let clientHostPort =
-              if nats.externalAccess then Some nats.clientPort else None Natural
+              if nats.externalAccess then Some nats.config.port else None Natural
 
         let clientPort =
               kubernetes.ContainerPort::{
-              , containerPort = nats.clientPort
+              , containerPort = nats.config.port
               , name = Some nats.name
               , hostPort = clientHostPort
               }
 
+        -- Render the configuration to text from NATS/Conf objects
+        -- so that can be stored within a ConfigMap.
         let natsConfFile = "nats.conf"
+        let natsConf = NATS/Server/toConf nats.config
+	let serverConfig = NATS/Conf/render natsConf
 
-        let serverConfig = NATS/toConf nats
+        let cm =
+              kubernetes.ConfigMap::{
+              , metadata = cmMetadata
+              , data = Some
+                [ { mapKey = natsConfFile, mapValue = serverConfig } ]
+              }
 
         let configVolume =
               kubernetes.Volume::{
@@ -64,13 +74,6 @@ let toK8S =
               , volumeMounts = Some [ configVolMount ]
               }
 
-        let cm =
-              kubernetes.ConfigMap::{
-              , metadata = cmMetadata
-              , data = Some
-                [ { mapKey = natsConfFile, mapValue = serverConfig } ]
-              }
-
         let sts =
               kubernetes.StatefulSet::{
               , metadata = metadata
@@ -97,15 +100,16 @@ let toK8S =
                 , ports = Some
                   [ kubernetes.ServicePort::{
                     , name = Some "client"
-                    , port = nats.clientPort
+                    , port = nats.config.port
                     , targetPort = Some
-                        (kubernetes.IntOrString.Int nats.clientPort)
+                        (kubernetes.IntOrString.Int nats.config.port)
                     }
                   ]
                 }
               }
 
-        in  NATS/K8S/Cluster::{
+        -- TODO: Return the resulting NATS/Conf here as well?
+        in  {
             , StatefulSet = sts
             , ConfigMap = cm
             , Service = svc
