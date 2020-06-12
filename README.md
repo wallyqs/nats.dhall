@@ -52,34 +52,23 @@ service/my-nats created
 
 ### Generating the server configuration
 
-It is also possible to create a sample configuration from the original `NATS.Server.Cluster` type as follows:
+It is also possible to create a sample configuration from the original `NATS.Server.Config` type as follows:
 
 ```dhall
 let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
 
-let cluster =
-      NATS.Server.Cluster::{
-      , name = "another-nats"
-      , namespace = "nats-io"
-      , image = "nats:latest"
-      , size = 3
-      }
+let serverConfig =  NATS.Server.Config::{
+     , port = 4222
+     , logging = Some NATS.Server.LoggingConfig::{
+       , debug = False
+       , trace = False
+       , logtime = False
+     }
+     , cluster = Some NATS.Server.ClusterConfig::{=}
+    }
 
-in NATS.Server.toConf cluster
-```
-
-Result:
-
-```hcl
-port = 4222
-http = 8222
-
-cluster {
-  port = 6222
-  routes = [
-    nats://another-nats.nats-io.svc:6222
-  ]
-}
+let conf = NATS.Server.toConf serverConfig
+in NATS.Conf.render conf
 ```
 
 ## License
