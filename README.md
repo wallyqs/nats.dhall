@@ -15,22 +15,25 @@ A [Dhall](http://dhall-lang.org/) package to setup [NATS.io](https://nats.io) cl
 Simple example of creating a 3 node cluster on the default namespace:
 
 ```dhall
-let NATS = https://wallyqs.github.io/nats.dhall/package.dhall
+let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
 
 let cluster =
-      NATS.Server.Cluster::{
+      NATS.K8S.Cluster::{
       , name = "my-nats"
       , namespace = "default"
       , image = "nats:latest"
       , size = 3
+      , config = NATS.Server.Config::{
+        , port = 4222
+        }
       }
 
 -- Creates a record with a StatefulSet, ConfigMap and Service
 -- which can be used for the base setup of the cluster.
-let natsk8s = NATS.K8S.toK8S cluster
+let nats/k8s = NATS.K8S.toK8S cluster
 
 -- Create a List object which can be deployed to K8S.
-in  NATS.K8S.toList natsk8s
+in  NATS.K8S.toList nats/k8s
 ```
 
 Then generate the YAML objects which can be applied via `kubectl`:
