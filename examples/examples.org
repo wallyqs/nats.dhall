@@ -9,11 +9,14 @@
 let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
 
 let cluster =
-      NATS.Server.Cluster::{
+      NATS.K8S.Cluster::{
       , name = "my-nats"
       , namespace = "default"
       , image = "nats:latest"
       , size = 3
+      , config = NATS.Server.Config::{
+        , port = 4223
+        }
       }
 
 let natsk8s = NATS.K8S.toK8S cluster
@@ -22,7 +25,7 @@ in  NATS.K8S.toList natsk8s
 #+END_SRC
 
 #+RESULTS:
-#+BEGIN_SRC dhall
+#+begin_src dhall
 apiVersion: v1
 items:
   - apiVersion: apps/v1
@@ -53,7 +56,7 @@ items:
               image: nats:latest
               name: nats
               ports:
-                - containerPort: 4222
+                - containerPort: 4223
                   name: my-nats
               volumeMounts:
                 - mountPath: /etc/nats
@@ -65,14 +68,7 @@ items:
   - apiVersion: v1
     data:
       nats.conf: |
-        {
-          port 4222,
-          http 8222,
-          cluster {
-            port 6222,
-            routes [ "nats://my-nats.my-nats.svc:6222" ]
-          }
-        }
+        { port 4223 }
     kind: ConfigMap
     metadata:
       labels:
@@ -90,38 +86,286 @@ items:
       clusterIP: None
       ports:
         - name: client
-          port: 4222
-          targetPort: 4222
+          port: 4223
+          targetPort: 4223
       selector:
         app: my-nats
 kind: List
+#+end_src
+
+* NATS Cluster with custom config
+
+#+BEGIN_SRC dhall :export both :tangle k8s-cluster-custom.dhall :results output code
+let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
+
+let cluster =
+      NATS.K8S.Cluster::{
+      , name = "my-nats-custom"
+      , namespace = "default"
+      , image = "nats:latest"
+      , size = 3
+      , config = NATS.Server.Config::{
+        , port = 4223
+        , logging = Some NATS.Server.LoggingConfig::{
+          , debug = True
+          , trace = True
+          }
+        }
+      }
+
+let natsk8s = NATS.K8S.toK8S cluster
+
+in  NATS.K8S.toList natsk8s
 #+END_SRC
+
+#+RESULTS:
+#+begin_src dhall
+apiVersion: v1
+items:
+  - apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      labels:
+        app: my-nats-custom
+      name: my-nats-custom
+      namespace: default
+    spec:
+      replicas: 3
+      selector:
+        matchLabels:
+          app: my-nats-custom
+      serviceName: my-nats-custom
+      template:
+        metadata:
+          labels:
+            app: my-nats-custom
+          name: my-nats-custom
+          namespace: default
+        spec:
+          containers:
+            - command:
+                - /nats-server
+                - "-c"
+                - /etc/nats/nats.conf
+              image: nats:latest
+              name: nats
+              ports:
+                - containerPort: 4223
+                  name: my-nats-custom
+              volumeMounts:
+                - mountPath: /etc/nats
+                  name: config-volume
+          volumes:
+            - configMap:
+                name: my-nats-custom-config
+              name: config-volume
+  - apiVersion: v1
+    data:
+      nats.conf: |
+        {
+          port 4223,
+          debug true,
+          logtime false,
+          trace true
+        }
+    kind: ConfigMap
+    metadata:
+      labels:
+        app: my-nats-custom
+      name: my-nats-custom-config
+      namespace: default
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app: my-nats-custom
+      name: my-nats-custom
+      namespace: default
+    spec:
+      clusterIP: None
+      ports:
+        - name: client
+          port: 4223
+          targetPort: 4223
+      selector:
+        app: my-nats-custom
+kind: List
+#+end_src
 
 * Generate NATS Server configuration
 
 #+BEGIN_SRC dhall :export both :tangle nats-conf.dhall :results output code
 let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
 
-let cluster =
-      NATS.Server.Cluster::{
-      , name = "another-nats"
-      , namespace = "nats-io"
-      , image = "nats:latest"
-      , size = 3
+let serverConfig = NATS.Server.Config::{
+      , port = 4223
+      , logging = Some NATS.Server.LoggingConfig::{
+        , debug = True
+        }
+      , cluster = Some NATS.Server.ClusterConfig::{=}
       }
 
-in NATS.Server.toConf cluster
+in NATS.Conf.render (NATS.Server.toConf serverConfig)
 #+END_SRC
 
 #+RESULTS:
-#+BEGIN_SRC dhall
+#+begin_src dhall
 |
 {
-  port 4222,
-  http 8222,
-  cluster {
-    port 6222,
-    routes [ "nats://another-nats.another-nats.svc:6222" ]
-  }
+  port 4223,
+  cluster { port 6222 },
+  debug true,
+  logtime false,
+  trace false
 }
+#+end_src
+
+* More customizing config examples
+
+#+BEGIN_SRC dhall :export both :tangle nats-conf-2.dhall :results output code
+let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
+
+let serverConfig =  NATS.Server.Config::{
+     , port = 4222
+     , logging = Some NATS.Server.LoggingConfig::{
+       , debug = False
+       , trace = False
+       , logtime = False
+     }
+     , cluster = Some NATS.Server.ClusterConfig::{=}
+    }
+
+-- Using 'with' syntax sugar to override
+let serverConfig = serverConfig with port = 4555
+let serverConfig = serverConfig with cluster = None NATS.Server.ClusterConfig.Type
+let serverConfig = serverConfig with cluster = Some NATS.Server.ClusterConfig::{ port = 8888 }
+let serverConfig = serverConfig // { port = 9090 }
+
+-- Now generate the NATS/Conf types and result 
+let conf = NATS.Server.toConf serverConfig
+in NATS.Conf.render conf
+#+end_src
+
+#+RESULTS:
+#+begin_src dhall
+|
+{
+  port 9090,
+  cluster { port 8888 },
+  debug false,
+  logtime false,
+  trace false
+}
+#+end_src
+
+* Hacking
+
+#+BEGIN_SRC dhall :export both :tangle k8s-cluster-hacking.dhall :results output code
+let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
+
+let kubernetes =
+      https://raw.githubusercontent.com/dhall-lang/dhall-kubernetes/v4.0.0/1.17/package.dhall sha256:d9eac5668d5ed9cb3364c0a39721d4694e4247dad16d8a82827e4619ee1d6188
+
+let cluster =
+      NATS.K8S.Cluster::{
+      , name = "my-nats-custom"
+      , namespace = "default"
+      , image = "nats:latest"
+      , size = 3
+      , config = NATS.Server.Config::{
+        , port = 4223
+        , logging = Some NATS.Server.LoggingConfig::{
+          , debug = True
+          , trace = True
+          }
+        }
+      }
+
+let nats/k8s = NATS.K8S.toK8S cluster
+
+-- Add some custom annotations to the StatefulSet
+let stsmeta = nats/k8s.StatefulSet.metadata
+let stsmeta = stsmeta with annotations = Some (toMap {
+  foo = "bar"
+})
+let sts = nats/k8s.StatefulSet with metadata = stsmeta
+let nats/k8s = nats/k8s with StatefulSet = sts
+
+in  NATS.K8S.toList nats/k8s
 #+END_SRC
+
+#+RESULTS:
+#+begin_src dhall
+apiVersion: v1
+items:
+  - apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      annotations:
+        foo: bar
+      labels:
+        app: my-nats-custom
+      name: my-nats-custom
+      namespace: default
+    spec:
+      replicas: 3
+      selector:
+        matchLabels:
+          app: my-nats-custom
+      serviceName: my-nats-custom
+      template:
+        metadata:
+          labels:
+            app: my-nats-custom
+          name: my-nats-custom
+          namespace: default
+        spec:
+          containers:
+            - command:
+                - /nats-server
+                - "-c"
+                - /etc/nats/nats.conf
+              image: nats:latest
+              name: nats
+              ports:
+                - containerPort: 4223
+                  name: my-nats-custom
+              volumeMounts:
+                - mountPath: /etc/nats
+                  name: config-volume
+          volumes:
+            - configMap:
+                name: my-nats-custom-config
+              name: config-volume
+  - apiVersion: v1
+    data:
+      nats.conf: |
+        {
+          port 4223,
+          debug true,
+          logtime false,
+          trace true
+        }
+    kind: ConfigMap
+    metadata:
+      labels:
+        app: my-nats-custom
+      name: my-nats-custom-config
+      namespace: default
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app: my-nats-custom
+      name: my-nats-custom
+      namespace: default
+    spec:
+      clusterIP: None
+      ports:
+        - name: client
+          port: 4223
+          targetPort: 4223
+      selector:
+        app: my-nats-custom
+kind: List
+#+end_src

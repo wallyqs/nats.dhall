@@ -1,11 +1,11 @@
-let NATS = env:NATS_PRELUDE
+let NATS = env:NATS_PRELUDE ? https://wallyqs.github.io/nats.dhall/package.dhall
 
-let cluster =
-      NATS.Server.Cluster::{
-      , name = "another-nats"
-      , namespace = "nats-io"
-      , image = "nats:latest"
-      , size = 3
+let serverConfig = NATS.Server.Config::{
+      , port = 4223
+      , logging = Some NATS.Server.LoggingConfig::{
+        , debug = True
+        }
+      , cluster = Some NATS.Server.ClusterConfig::{=}
       }
 
-in  NATS.Server.toConf cluster
+in NATS.Conf.render (NATS.Server.toConf serverConfig)
