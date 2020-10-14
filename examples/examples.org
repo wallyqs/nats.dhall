@@ -21,7 +21,6 @@ let natsk8s = NATS.K8S.toK8S cluster
 in  NATS.K8S.toList natsk8s
 #+END_SRC
 
-#+RESULTS:
 #+BEGIN_SRC dhall
 apiVersion: v1
 items:
@@ -113,7 +112,6 @@ let cluster =
 in NATS.Server.toConf cluster
 #+END_SRC
 
-#+RESULTS:
 #+BEGIN_SRC dhall
 |
 {
